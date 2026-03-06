@@ -99,7 +99,7 @@ make -j4
 ```bash
 sudo make install
 sudo mkdir -p /var/ws/audiod/clips
-sudo cp config/audio-daemon.service /etc/systemd/system/
+sudo cp config/ws-audiod.service /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 

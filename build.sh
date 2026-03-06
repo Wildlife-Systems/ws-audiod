@@ -71,11 +71,11 @@ install_daemon() {
         sudo cp ../config/ws-audiod.conf /etc/ws/audiod/
     fi
 
-    sudo cp ../config/audio-daemon.service /etc/systemd/system/
+    sudo cp ../config/ws-audiod.service /etc/systemd/system/
     sudo systemctl daemon-reload
 
     info "Installation complete"
-    info "Start with: sudo systemctl start audio-daemon"
+    info "Start with: sudo systemctl start ws-audiod"
 }
 
 clean() {
