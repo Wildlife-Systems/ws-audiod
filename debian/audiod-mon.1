@@ -1,15 +1,15 @@
-.TH AUDIO_MON 1 "March 2026" "1.0.0" "ws-audiod"
+.TH AUDIOD-MON 1 "March 2026" "1.0.0" "ws-audiod"
 .SH NAME
-audio_mon \- real-time terminal audio monitor for ws\-audiod
+audiod-mon \- real-time terminal audio monitor for ws\-audiod
 .SH SYNOPSIS
-.B audio_mon
+.B audiod-mon
 .RB [ \-s
 .IR shm_name ]
 .RB [ \-S
 .IR socket_path ]
 .RB [ \-h ]
 .SH DESCRIPTION
-.B audio_mon
+.B audiod-mon
 reads audio samples from the ws\-audiod shared memory region and displays
 a live per-channel level meter in the terminal. It also allows adjusting the
 daemon's mic boost (gain) via keyboard controls.

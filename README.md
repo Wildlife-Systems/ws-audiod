@@ -184,11 +184,11 @@ python3 examples/audio_client.py stream
 
 ### Audio Monitor
 
-`audio_mon` provides a live terminal level meter with gain control:
+`audiod-mon` provides a live terminal level meter with gain control:
 
 ```bash
-./audio_mon              # connect to default shm
-./audio_mon -s /ws_audiod_samples -S /run/ws-audiod/control.sock
+audiod-mon              # connect to default shm
+audiod-mon -s /ws_audiod_samples -S /run/ws-audiod/control.sock
 ```
 
 Use **UP/+** and **DOWN/-** to adjust mic boost in 1 dB steps, **q** to quit.

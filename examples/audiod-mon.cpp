@@ -1,10 +1,10 @@
-// audio-mon: Real-time terminal audio monitor for ws-audiod
+// audiod-mon: Real-time terminal audio monitor for ws-audiod
 //
 // Reads audio from the daemon's shared memory and displays a live
 // level meter.  Keyboard controls adjust mic boost via the control
 // socket.
 //
-// Usage: audio-mon [options]
+// Usage: audiod-mon [options]
 //   -s, --shm NAME      Shared memory name  (default: /ws_audiod_samples)
 //   -S, --socket PATH   Control socket path  (default: /run/ws-audiod/control.sock)
 //   -h, --help          Show help
@@ -222,7 +222,7 @@ int main(int argc, char* argv[]) {
 
     // ── header ──────────────────────────────────────────────────────
     std::cout << "\033[2J\033[H"; // clear screen
-    std::cout << "audio-mon — ws-audiod live monitor\n"
+    std::cout << "audiod-mon - ws-audiod live monitor\n"
               << "  " << sample_rate << " Hz / " << bits << "-bit / "
               << channels << " ch / " << period_frames << " frames\n"
               << "  UP/DOWN or +/-: adjust gain   q: quit\n";
