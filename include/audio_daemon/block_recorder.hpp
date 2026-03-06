@@ -16,20 +16,16 @@ namespace audio_daemon {
  *
  * Writes consecutive audio files of a fixed duration (e.g. 5 minutes)
  * with zero inter-file sample gap.  The recorder is fed samples from
- * the capture thread via push(); it accumulates exactly
- * (block_duration_seconds * sample_rate) frames per file, then closes
- * the current file and immediately opens the next one.  No samples are
- * buffered in memory between files — the transition is a simple file
- * handle swap.
+ * the capture thread via push(); it accumulates frames in a write
+ * buffer and flushes to disk in larger batches to reduce syscall
+ * overhead (critical on Pi / SD card).
  *
  * Output filenames encode the UTC start time of each block:
  *   block_20260305_143000.wav   (started at 14:30:00)
  *   block_20260305_143500.wav   (started at 14:35:00)
  *
  * Thread safety: push() is called from the capture thread.  File I/O
- * runs inline (the ALSA period callback writes directly to disk).
- * This keeps latency bounded to a single disk write per period and
- * avoids the need for an intermediate queue.
+ * runs inline but is batched to reduce kernel transitions.
  */
 class BlockRecorder {
 public:
@@ -53,8 +49,7 @@ public:
     /**
      * Feed captured samples to the recorder.
      * Called from the ALSA capture thread for every period.
-     * Writes are synchronous — the function returns after the disk
-     * write completes.
+     * Data is buffered and flushed to disk in larger batches.
      */
     void push(const uint8_t* data, size_t frame_count);
 
@@ -72,8 +67,11 @@ private:
     /** Open (or rotate to) a new output file. */
     bool open_next_file();
 
-    /** Close the current file. */
+    /** Close the current file (flushes buffer first). */
     void close_current_file();
+
+    /** Flush the write buffer to the current sndfile. */
+    void flush_buffer();
 
     /** Build a filename for a block starting at the given time. */
     std::string make_filename(uint64_t timestamp_us) const;
@@ -89,7 +87,12 @@ private:
     // Current output file state (accessed only from capture thread)
     SNDFILE* sndfile_ = nullptr;
     std::string current_path_;
-    uint64_t frames_in_block_ = 0;
+    uint64_t frames_in_block_ = 0;   // frames written + buffered for current block
+
+    // Write buffer — accumulates frames, flushed in batches
+    std::vector<uint8_t> write_buffer_;
+    size_t buffer_used_ = 0;          // bytes currently in write_buffer_
+    size_t flush_threshold_;           // bytes — flush when buffer reaches this
 
     // Stats (atomic for lock-free reads from control thread)
     std::atomic<uint64_t> blocks_written_{0};

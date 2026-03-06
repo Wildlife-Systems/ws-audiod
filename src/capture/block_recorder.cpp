@@ -13,7 +13,15 @@ BlockRecorder::BlockRecorder(const BlockRecorderConfig& config,
       sample_rate_(sample_rate),
       channels_(channels),
       bits_per_sample_(bits_per_sample),
-      block_frames_(static_cast<uint64_t>(config.block_duration_seconds) * sample_rate) {}
+      block_frames_(static_cast<uint64_t>(config.block_duration_seconds) * sample_rate) {
+    // Flush threshold: ~1 second of audio, or 64KB, whichever is larger.
+    // This batches ~47 small ALSA periods into one large disk write.
+    size_t bytes_per_frame = static_cast<size_t>(channels) * (bits_per_sample / 8);
+    size_t one_second = sample_rate * bytes_per_frame;
+    flush_threshold_ = std::max(one_second, static_cast<size_t>(65536));
+    // Over-allocate slightly so push() can always memcpy before flushing
+    write_buffer_.resize(flush_threshold_ * 2);
+}
 
 BlockRecorder::~BlockRecorder() {
     stop();
@@ -63,33 +71,23 @@ void BlockRecorder::push(const uint8_t* data, size_t frame_count) {
         // How many frames fit in the current block?
         size_t space = block_frames_ - frames_in_block_;
         size_t batch = std::min(remaining, space);
+        size_t batch_bytes = batch * bytes_per_frame;
 
-        sf_count_t written;
-        if (bits_per_sample_ == 32) {
-            written = sf_writef_int(sndfile_, reinterpret_cast<const int*>(src),
-                                    static_cast<sf_count_t>(batch));
-        } else if (bits_per_sample_ == 24) {
-            // libsndfile handles 24-bit via int with SF_FORMAT_PCM_24
-            written = sf_writef_int(sndfile_, reinterpret_cast<const int*>(src),
-                                    static_cast<sf_count_t>(batch));
-        } else {
-            written = sf_writef_short(sndfile_, reinterpret_cast<const short*>(src),
-                                      static_cast<sf_count_t>(batch));
-        }
-        if (written < 0) {
-            LOG_ERROR("Block recorder: write error: ", sf_strerror(sndfile_));
-            close_current_file();
-            return;
-        }
+        // Append to write buffer
+        std::memcpy(write_buffer_.data() + buffer_used_, src, batch_bytes);
+        buffer_used_ += batch_bytes;
+        frames_in_block_ += batch;
+        src += batch_bytes;
+        remaining -= batch;
 
-        frames_in_block_ += static_cast<uint64_t>(written);
-        total_frames_written_.fetch_add(static_cast<uint64_t>(written),
-                                        std::memory_order_relaxed);
-        src += static_cast<size_t>(written) * bytes_per_frame;
-        remaining -= static_cast<size_t>(written);
+        // Flush if buffer is full enough or block is complete
+        bool block_full = (frames_in_block_ >= block_frames_);
+        if (buffer_used_ >= flush_threshold_ || block_full) {
+            flush_buffer();
+        }
 
         // Rotate to next file if block is full
-        if (frames_in_block_ >= block_frames_) {
+        if (block_full) {
             close_current_file();
             blocks_written_.fetch_add(1, std::memory_order_relaxed);
         }
@@ -148,6 +146,7 @@ bool BlockRecorder::open_next_file() {
 
 void BlockRecorder::close_current_file() {
     if (sndfile_) {
+        flush_buffer();
         sf_write_sync(sndfile_);
         sf_close(sndfile_);
         sndfile_ = nullptr;
@@ -155,6 +154,32 @@ void BlockRecorder::close_current_file() {
                  " (", frames_in_block_, " frames)");
         current_path_.clear();
     }
+}
+
+void BlockRecorder::flush_buffer() {
+    if (buffer_used_ == 0 || !sndfile_) return;
+
+    size_t bytes_per_frame = static_cast<size_t>(channels_) * (bits_per_sample_ / 8);
+    size_t frames = buffer_used_ / bytes_per_frame;
+
+    sf_count_t written;
+    if (bits_per_sample_ >= 24) {
+        written = sf_writef_int(sndfile_,
+                                reinterpret_cast<const int*>(write_buffer_.data()),
+                                static_cast<sf_count_t>(frames));
+    } else {
+        written = sf_writef_short(sndfile_,
+                                  reinterpret_cast<const short*>(write_buffer_.data()),
+                                  static_cast<sf_count_t>(frames));
+    }
+
+    if (written < 0) {
+        LOG_ERROR("Block recorder: write error: ", sf_strerror(sndfile_));
+    } else {
+        total_frames_written_.fetch_add(static_cast<uint64_t>(written),
+                                        std::memory_order_relaxed);
+    }
+    buffer_used_ = 0;
 }
 
 std::string BlockRecorder::make_filename(uint64_t timestamp_us) const {

@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
+#include <atomic>
 
 namespace audio_daemon {
 
@@ -79,8 +80,9 @@ void SamplePublisher::publish(const uint8_t* data, size_t frame_count,
     // Copy sample data
     std::memcpy(shm_ptr_ + HEADER_SIZE, data, bytes);
 
-    // Memory fence so readers see consistent data
-    __sync_synchronize();
+    // Release fence — ensures readers see data before the updated counter.
+    // Much lighter than __sync_synchronize() on ARM (DMB ISH vs DSB SY).
+    std::atomic_thread_fence(std::memory_order_release);
 }
 
 void SamplePublisher::cleanup() {
