@@ -43,6 +43,7 @@ struct AudioConfig {
     double gain_db = 0.0;              // Input gain in dB
     bool dc_remove = false;            // DC offset removal filter
     int cpu_affinity = -1;             // CPU core to pin capture thread (-1 = no pinning)
+    bool downmix_mono = false;         // Mix stereo input down to mono
 };
 
 // Block recorder configuration

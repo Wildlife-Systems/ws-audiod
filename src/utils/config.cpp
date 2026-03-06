@@ -75,6 +75,8 @@ DaemonConfig load_config(const std::string& path) {
                 config.audio.dc_remove = (value == "true" || value == "1");
             else if (key == "cpu_affinity")
                 config.audio.cpu_affinity = std::stoi(value);
+            else if (key == "downmix_mono")
+                config.audio.downmix_mono = (value == "true" || value == "1");
         } else if (section == "block_recorder") {
             if (key == "enabled")
                 config.block_recorder.enabled = (value == "true" || value == "1");

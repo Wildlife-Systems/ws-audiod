@@ -79,6 +79,13 @@ private:
                     size_t sample_count, uint16_t bits_per_sample,
                     double gain) const;
 
+    // Stereo-to-mono downmix
+    bool downmix_mono_ = false;
+    std::vector<uint8_t> mono_buffer_;  // scratch buffer for downmixed data
+
+    void apply_downmix(const uint8_t* src, uint8_t* dst,
+                       size_t frame_count, uint16_t bits_per_sample) const;
+
     // DC offset removal (single-pole high-pass IIR per channel)
     std::atomic<bool> dc_remove_{false};
     std::vector<double> dc_prev_x_;  // previous input per channel

@@ -12,7 +12,7 @@
 namespace audio_daemon {
 
 CapturePipeline::CapturePipeline(const DaemonConfig& config)
-    : config_(config) {
+    : config_(config), downmix_mono_(config.audio.downmix_mono) {
     gain_db_.store(config.audio.gain_db, std::memory_order_relaxed);
     gain_linear_.store(std::pow(10.0, config.audio.gain_db / 20.0),
                        std::memory_order_relaxed);
@@ -21,11 +21,16 @@ CapturePipeline::CapturePipeline(const DaemonConfig& config)
                  gain_linear_.load(), ")");
     }
 
+    // DC removal state uses output channel count (1 if downmixing)
+    uint16_t out_ch = downmix_mono_ ? 1 : config.audio.channels;
     dc_remove_.store(config.audio.dc_remove, std::memory_order_relaxed);
-    dc_prev_x_.resize(config.audio.channels, 0.0);
-    dc_prev_y_.resize(config.audio.channels, 0.0);
+    dc_prev_x_.resize(out_ch, 0.0);
+    dc_prev_y_.resize(out_ch, 0.0);
     if (config.audio.dc_remove) {
         LOG_INFO("DC offset removal enabled");
+    }
+    if (downmix_mono_) {
+        LOG_INFO("Stereo-to-mono downmix enabled (keep L, discard R)");
     }
 }
 
@@ -47,20 +52,23 @@ bool CapturePipeline::initialize() {
     uint16_t ch = config_.audio.channels;
     uint16_t bps = config_.audio.bits_per_sample;
 
-    // Ring buffer
+    // Output channel count: 1 if downmixing stereo to mono
+    uint16_t out_ch = (downmix_mono_ && ch >= 2) ? 1 : ch;
+
+    // Ring buffer (sized for output channels)
     size_t rb_frames = static_cast<size_t>(config_.ring_buffer_seconds) * rate;
-    ring_buffer_ = std::make_unique<RingBuffer>(rb_frames, ch, bps / 8);
+    ring_buffer_ = std::make_unique<RingBuffer>(rb_frames, out_ch, bps / 8);
 
     // Clip extractor
     ClipExtractor::Config clip_cfg;
     clip_cfg.output_dir = config_.clips_dir;
     clip_extractor_ = std::make_unique<ClipExtractor>(
-        clip_cfg, *ring_buffer_, rate, ch, bps);
+        clip_cfg, *ring_buffer_, rate, out_ch, bps);
 
     // Block recorder
     if (config_.block_recorder.enabled) {
         block_recorder_ = std::make_unique<BlockRecorder>(
-            config_.block_recorder, rate, ch, bps);
+            config_.block_recorder, rate, out_ch, bps);
         if (!block_recorder_->initialize()) {
             LOG_ERROR("Failed to initialise block recorder");
             return false;
@@ -70,17 +78,22 @@ bool CapturePipeline::initialize() {
     // Shared memory publisher
     if (config_.enable_sample_sharing) {
         sample_publisher_ = std::make_unique<SamplePublisher>(
-            config_.shm_name, rate, ch, bps, capture_->actual_period_size());
+            config_.shm_name, rate, out_ch, bps, capture_->actual_period_size());
         if (!sample_publisher_->initialize()) {
             LOG_ERROR("Failed to initialise sample publisher");
             return false;
         }
     }
 
-    // Pre-allocate gain/DC buffer to avoid resizing during capture
+    // Pre-allocate buffers to avoid resizing during capture
     size_t max_chunk_bytes = static_cast<size_t>(capture_->actual_period_size())
                              * ch * (bps / 8);
     gain_buffer_.resize(max_chunk_bytes);
+    if (downmix_mono_ && ch >= 2) {
+        // Mono buffer is half the stereo size
+        mono_buffer_.resize(static_cast<size_t>(capture_->actual_period_size())
+                            * 1 * (bps / 8));
+    }
 
     // Wire capture callback
     capture_->set_callback(
@@ -160,32 +173,45 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
                                      size_t sample_count) {
     size_t frame_count = sample_count / meta.channels;
     size_t bytes_per_sample = meta.bits_per_sample / 8;
-    size_t data_size = sample_count * bytes_per_sample;
+
+    // Stereo-to-mono downmix: keep L channel, discard R
+    const uint8_t* cur_data = data;
+    uint16_t cur_channels = meta.channels;
+    size_t cur_samples = sample_count;
+    if (downmix_mono_ && meta.channels >= 2) {
+        apply_downmix(data, mono_buffer_.data(), frame_count,
+                      meta.bits_per_sample);
+        cur_data = mono_buffer_.data();
+        cur_channels = 1;
+        cur_samples = frame_count;  // 1 sample per frame now
+    }
+
+    size_t data_size = cur_samples * bytes_per_sample;
 
     // Apply mic boost if gain != 0 dB
     double gain = gain_linear_.load(std::memory_order_relaxed);
-    const uint8_t* out_data = data;
+    const uint8_t* out_data = cur_data;
     if (gain != 1.0) {
         if (gain_buffer_.size() < data_size) {
             gain_buffer_.resize(data_size);
         }
-        apply_gain(data, gain_buffer_.data(), sample_count,
+        apply_gain(cur_data, gain_buffer_.data(), cur_samples,
                    meta.bits_per_sample, gain);
         out_data = gain_buffer_.data();
     }
 
     // Apply DC offset removal (needs mutable buffer)
     if (dc_remove_.load(std::memory_order_relaxed)) {
-        if (out_data == data) {
+        if (out_data == cur_data) {
             // Haven't copied yet — need a mutable buffer
             if (gain_buffer_.size() < data_size) {
                 gain_buffer_.resize(data_size);
             }
-            std::memcpy(gain_buffer_.data(), data, data_size);
+            std::memcpy(gain_buffer_.data(), cur_data, data_size);
             out_data = gain_buffer_.data();
         }
-        apply_dc_remove(gain_buffer_.data(), sample_count,
-                        meta.channels, meta.bits_per_sample);
+        apply_dc_remove(gain_buffer_.data(), cur_samples,
+                        cur_channels, meta.bits_per_sample);
     }
 
     // Feed ring buffer
@@ -213,7 +239,7 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
             int16x8_t vpeak = vdupq_n_s16(0);
             int64x2_t vsum = vdupq_n_s64(0);
             size_t i = 0;
-            size_t neon_end = sample_count & ~7u;
+            size_t neon_end = cur_samples & ~7u;
             for (; i < neon_end; i += 8) {
                 int16x8_t v = vld1q_s16(samples16 + i);
                 int16x8_t va = vabsq_s16(v);
@@ -238,14 +264,14 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
             vst1q_s64(sum_arr, vsum);
             sum_sq += static_cast<double>(sum_arr[0]) + static_cast<double>(sum_arr[1]);
             // Scalar tail
-            for (; i < sample_count; ++i) {
+            for (; i < cur_samples; ++i) {
                 int32_t s = samples16[i];
                 int32_t abs_s = std::abs(s);
                 if (abs_s > peak) peak = abs_s;
                 sum_sq += static_cast<double>(s) * s;
             }
 #else
-            for (size_t i = 0; i < sample_count; ++i) {
+            for (size_t i = 0; i < cur_samples; ++i) {
                 int32_t s = samples16[i];
                 int32_t abs_s = std::abs(s);
                 if (abs_s > peak) peak = abs_s;
@@ -255,7 +281,7 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
             break;
         }
         case 24:
-            for (size_t i = 0; i < sample_count; ++i) {
+            for (size_t i = 0; i < cur_samples; ++i) {
                 const uint8_t* p = out_data + i * 3;
                 int32_t s = p[0] | (p[1] << 8) | (p[2] << 16);
                 if (s & 0x800000) s |= 0xFF000000;
@@ -271,7 +297,7 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
             int32x4_t vpeak = vdupq_n_s32(0);
             int64x2_t vsum = vdupq_n_s64(0);
             size_t i = 0;
-            size_t neon_end = sample_count & ~3u;
+            size_t neon_end = cur_samples & ~3u;
             for (; i < neon_end; i += 4) {
                 int32x4_t v = vld1q_s32(samples32 + i);
                 int32x4_t shifted = vshrq_n_s32(v, 16);
@@ -293,14 +319,14 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
             vst1q_s64(sum_arr, vsum);
             sum_sq += static_cast<double>(sum_arr[0]) + static_cast<double>(sum_arr[1]);
             // Scalar tail
-            for (; i < sample_count; ++i) {
+            for (; i < cur_samples; ++i) {
                 int32_t s = samples32[i] >> 16;
                 int32_t abs_s = std::abs(s);
                 if (abs_s > peak) peak = abs_s;
                 sum_sq += static_cast<double>(s) * s;
             }
 #else
-            for (size_t i = 0; i < sample_count; ++i) {
+            for (size_t i = 0; i < cur_samples; ++i) {
                 int32_t s = samples32[i] >> 16;
                 int32_t abs_s = std::abs(s);
                 if (abs_s > peak) peak = abs_s;
@@ -311,7 +337,7 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
         }
     }
     peak_level_.store(static_cast<int16_t>(std::min(peak, (int32_t)32767)), std::memory_order_relaxed);
-    rms_level_.store(std::sqrt(sum_sq / static_cast<double>(sample_count)),
+    rms_level_.store(std::sqrt(sum_sq / static_cast<double>(cur_samples)),
                      std::memory_order_relaxed);
     total_frames_.fetch_add(frame_count, std::memory_order_relaxed);
 }
@@ -407,6 +433,55 @@ void CapturePipeline::apply_gain(const uint8_t* src, uint8_t* dst,
     }
 }
 
+void CapturePipeline::apply_downmix(const uint8_t* src, uint8_t* dst,
+                                     size_t frame_count,
+                                     uint16_t bits_per_sample) const {
+    // Keep left channel, discard right — stride-2 to stride-1 copy
+    size_t bps = bits_per_sample / 8;
+    size_t src_stride = 2 * bps;  // stereo: 2 samples per frame
+
+    switch (bits_per_sample) {
+        case 16: {
+            const int16_t* sp = reinterpret_cast<const int16_t*>(src);
+            int16_t* dp = reinterpret_cast<int16_t*>(dst);
+            for (size_t f = 0; f < frame_count; ++f) {
+                dp[f] = sp[f * 2];  // L = index 0, R = index 1
+            }
+            break;
+        }
+        case 24:
+            for (size_t f = 0; f < frame_count; ++f) {
+                const uint8_t* s = src + f * src_stride;
+                uint8_t* d = dst + f * 3;
+                d[0] = s[0];
+                d[1] = s[1];
+                d[2] = s[2];
+            }
+            break;
+        case 32: {
+            const int32_t* sp = reinterpret_cast<const int32_t*>(src);
+            int32_t* dp = reinterpret_cast<int32_t*>(dst);
+#ifdef __ARM_NEON
+            // NEON: deinterleave pairs, keep even elements (L channel)
+            size_t f = 0;
+            size_t neon_end = frame_count & ~3u;
+            for (; f < neon_end; f += 4) {
+                int32x4x2_t stereo = vld2q_s32(sp + f * 2);
+                vst1q_s32(dp + f, stereo.val[0]);  // val[0] = L channels
+            }
+            for (; f < frame_count; ++f) {
+                dp[f] = sp[f * 2];
+            }
+#else
+            for (size_t f = 0; f < frame_count; ++f) {
+                dp[f] = sp[f * 2];
+            }
+#endif
+            break;
+        }
+    }
+}
+
 void CapturePipeline::apply_dc_remove(uint8_t* data, size_t sample_count,
                                       uint16_t channels,
                                       uint16_t bits_per_sample) {
@@ -471,7 +546,7 @@ std::string CapturePipeline::get_status_json() const {
     oss << R"({"running":)" << (running_.load() ? "true" : "false")
         << R"(,"capture":{"frames":)" << stats.frames_captured
         << R"(,"rate":)" << capture_->actual_rate()
-        << R"(,"channels":)" << config_.audio.channels
+        << R"(,"channels":)" << (downmix_mono_ ? 1 : config_.audio.channels)
         << R"(,"bits":)" << config_.audio.bits_per_sample
         << R"(,"device":")" << config_.audio.device << R"(")"
         << R"(,"gain_db":)" << gain_db_.load(std::memory_order_relaxed)
