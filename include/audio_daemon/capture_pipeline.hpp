@@ -9,6 +9,8 @@
 #include <memory>
 #include <atomic>
 #include <string>
+#include <vector>
+#include <cmath>
 
 namespace audio_daemon {
 
@@ -67,6 +69,15 @@ private:
     std::unique_ptr<ClipExtractor> clip_extractor_;
     std::unique_ptr<BlockRecorder> block_recorder_;
     std::unique_ptr<SamplePublisher> sample_publisher_;
+
+    // Mic boost / gain
+    std::atomic<double> gain_linear_{1.0};
+    std::atomic<double> gain_db_{0.0};
+    std::vector<uint8_t> gain_buffer_;  // scratch buffer for gain-adjusted data
+
+    void apply_gain(const uint8_t* src, uint8_t* dst,
+                    size_t sample_count, uint16_t bits_per_sample,
+                    double gain) const;
 
     // Level metering (updated from capture thread)
     std::atomic<int16_t> peak_level_{0};

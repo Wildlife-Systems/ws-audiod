@@ -124,6 +124,10 @@ class AudioClient:
     def set_parameter(self, key: str, value: str) -> Response:
         return self._send_command(f"SET {key} {value}")
 
+    def set_gain(self, gain_db: float) -> Response:
+        """Set mic boost / input gain in dB (0 = unity, 6 = ~2x, 20 = 10x)."""
+        return self.set_parameter("gain_db", str(gain_db))
+
     def close(self):
         if self._sock:
             self._sock.close()

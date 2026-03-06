@@ -6,6 +6,7 @@ set(UNIT_TEST_SOURCES
     test_common.cpp
     test_config.cpp
     test_control_socket.cpp
+    test_mic_boost.cpp
 )
 
 add_executable(audio_daemon_tests ${UNIT_TEST_SOURCES})

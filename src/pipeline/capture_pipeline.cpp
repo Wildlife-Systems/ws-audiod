@@ -1,12 +1,21 @@
 #include "audio_daemon/capture_pipeline.hpp"
 #include "audio_daemon/logger.hpp"
 #include <cmath>
+#include <algorithm>
 #include <sstream>
 
 namespace audio_daemon {
 
 CapturePipeline::CapturePipeline(const DaemonConfig& config)
-    : config_(config) {}
+    : config_(config) {
+    gain_db_.store(config.audio.gain_db, std::memory_order_relaxed);
+    gain_linear_.store(std::pow(10.0, config.audio.gain_db / 20.0),
+                       std::memory_order_relaxed);
+    if (config.audio.gain_db != 0.0) {
+        LOG_INFO("Mic boost: ", config.audio.gain_db, " dB (linear ",
+                 gain_linear_.load(), ")");
+    }
+}
 
 CapturePipeline::~CapturePipeline() {
     stop();
@@ -108,8 +117,11 @@ std::string CapturePipeline::capture_clip(int start_offset, int end_offset,
 bool CapturePipeline::set_parameter(const std::string& key,
                                     const std::string& value) {
     if (key == "gain_db" || key == "gain") {
-        // Runtime gain change would go here
-        LOG_INFO("Set gain_db = ", value);
+        double db = std::stod(value);
+        gain_db_.store(db, std::memory_order_relaxed);
+        gain_linear_.store(std::pow(10.0, db / 20.0),
+                           std::memory_order_relaxed);
+        LOG_INFO("Mic boost set to ", db, " dB");
         return true;
     }
     LOG_WARN("Unknown parameter: ", key);
@@ -120,27 +132,40 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
                                      const uint8_t* data,
                                      size_t sample_count) {
     size_t frame_count = sample_count / meta.channels;
+    size_t bytes_per_sample = meta.bits_per_sample / 8;
+    size_t data_size = sample_count * bytes_per_sample;
+
+    // Apply mic boost if gain != 0 dB
+    double gain = gain_linear_.load(std::memory_order_relaxed);
+    const uint8_t* out_data = data;
+    if (gain != 1.0) {
+        if (gain_buffer_.size() < data_size) {
+            gain_buffer_.resize(data_size);
+        }
+        apply_gain(data, gain_buffer_.data(), sample_count,
+                   meta.bits_per_sample, gain);
+        out_data = gain_buffer_.data();
+    }
 
     // Feed ring buffer
-    ring_buffer_->write(data, frame_count);
+    ring_buffer_->write(out_data, frame_count);
 
     // Feed block recorder
     if (block_recorder_) {
-        block_recorder_->push(data, frame_count);
+        block_recorder_->push(out_data, frame_count);
     }
 
     // Feed shared memory publisher
     if (sample_publisher_) {
-        sample_publisher_->publish(data, frame_count, meta.timestamp_us);
+        sample_publisher_->publish(out_data, frame_count, meta.timestamp_us);
     }
 
-    // Update level metering (interpret samples based on bit depth)
+    // Update level metering (use boosted data)
     int32_t peak = 0;
     double sum_sq = 0.0;
-    size_t bytes_per_sample = meta.bits_per_sample / 8;
     for (size_t i = 0; i < sample_count; ++i) {
         int32_t s = 0;
-        const uint8_t* p = data + i * bytes_per_sample;
+        const uint8_t* p = out_data + i * bytes_per_sample;
         switch (meta.bits_per_sample) {
             case 16:
                 s = static_cast<int16_t>(p[0] | (p[1] << 8));
@@ -164,6 +189,48 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
     total_frames_.fetch_add(frame_count, std::memory_order_relaxed);
 }
 
+void CapturePipeline::apply_gain(const uint8_t* src, uint8_t* dst,
+                                 size_t sample_count, uint16_t bits_per_sample,
+                                 double gain) const {
+    size_t bps = bits_per_sample / 8;
+    for (size_t i = 0; i < sample_count; ++i) {
+        const uint8_t* sp = src + i * bps;
+        uint8_t* dp = dst + i * bps;
+        switch (bits_per_sample) {
+            case 16: {
+                int32_t s = static_cast<int16_t>(sp[0] | (sp[1] << 8));
+                s = static_cast<int32_t>(s * gain);
+                s = std::clamp(s, (int32_t)-32768, (int32_t)32767);
+                dp[0] = static_cast<uint8_t>(s & 0xFF);
+                dp[1] = static_cast<uint8_t>((s >> 8) & 0xFF);
+                break;
+            }
+            case 24: {
+                int32_t s = sp[0] | (sp[1] << 8) | (sp[2] << 16);
+                if (s & 0x800000) s |= 0xFF000000;
+                s = static_cast<int32_t>(s * gain);
+                s = std::clamp(s, (int32_t)-8388608, (int32_t)8388607);
+                dp[0] = static_cast<uint8_t>(s & 0xFF);
+                dp[1] = static_cast<uint8_t>((s >> 8) & 0xFF);
+                dp[2] = static_cast<uint8_t>((s >> 16) & 0xFF);
+                break;
+            }
+            case 32: {
+                int64_t s = static_cast<int32_t>(
+                    sp[0] | (sp[1] << 8) | (sp[2] << 16) | (sp[3] << 24));
+                s = static_cast<int64_t>(s * gain);
+                int32_t c = static_cast<int32_t>(std::clamp(
+                    s, (int64_t)INT32_MIN, (int64_t)INT32_MAX));
+                dp[0] = static_cast<uint8_t>(c & 0xFF);
+                dp[1] = static_cast<uint8_t>((c >> 8) & 0xFF);
+                dp[2] = static_cast<uint8_t>((c >> 16) & 0xFF);
+                dp[3] = static_cast<uint8_t>((c >> 24) & 0xFF);
+                break;
+            }
+        }
+    }
+}
+
 std::string CapturePipeline::get_status_json() const {
     auto stats = get_stats();
     std::ostringstream oss;
@@ -173,6 +240,7 @@ std::string CapturePipeline::get_status_json() const {
         << R"(,"channels":)" << config_.audio.channels
         << R"(,"bits":)" << config_.audio.bits_per_sample
         << R"(,"device":")" << config_.audio.device << R"(")"
+        << R"(,"gain_db":)" << gain_db_.load(std::memory_order_relaxed)
         << R"(,"ring_buffer_frames":)" << stats.ring_buffer_frames
         << "}";
 
