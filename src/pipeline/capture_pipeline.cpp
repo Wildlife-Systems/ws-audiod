@@ -5,6 +5,10 @@
 #include <cstring>
 #include <sstream>
 
+#ifdef __ARM_NEON
+#include <arm_neon.h>
+#endif
+
 namespace audio_daemon {
 
 CapturePipeline::CapturePipeline(const DaemonConfig& config)
@@ -199,12 +203,50 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
     switch (meta.bits_per_sample) {
         case 16: {
             const int16_t* samples16 = reinterpret_cast<const int16_t*>(out_data);
+#ifdef __ARM_NEON
+            // NEON: process 8 samples at a time
+            int16x8_t vpeak = vdupq_n_s16(0);
+            int64x2_t vsum = vdupq_n_s64(0);
+            size_t i = 0;
+            size_t neon_end = sample_count & ~7u;
+            for (; i < neon_end; i += 8) {
+                int16x8_t v = vld1q_s16(samples16 + i);
+                int16x8_t va = vabsq_s16(v);
+                vpeak = vmaxq_s16(vpeak, va);
+                // Widen to 32-bit and accumulate squares
+                int16x4_t lo = vget_low_s16(v);
+                int16x4_t hi = vget_high_s16(v);
+                int32x4_t sq_lo = vmull_s16(lo, lo);
+                int32x4_t sq_hi = vmull_s16(hi, hi);
+                // Pairwise add 32->64, accumulate
+                vsum = vpadalq_s32(vsum, sq_lo);
+                vsum = vpadalq_s32(vsum, sq_hi);
+            }
+            // Reduce NEON peak
+            int16x4_t pk4 = vmax_s16(vget_low_s16(vpeak), vget_high_s16(vpeak));
+            int16_t pk_arr[4];
+            vst1_s16(pk_arr, pk4);
+            for (int j = 0; j < 4; ++j)
+                if (pk_arr[j] > peak) peak = pk_arr[j];
+            // Reduce NEON sum
+            int64_t sum_arr[2];
+            vst1q_s64(sum_arr, vsum);
+            sum_sq += static_cast<double>(sum_arr[0]) + static_cast<double>(sum_arr[1]);
+            // Scalar tail
+            for (; i < sample_count; ++i) {
+                int32_t s = samples16[i];
+                int32_t abs_s = std::abs(s);
+                if (abs_s > peak) peak = abs_s;
+                sum_sq += static_cast<double>(s) * s;
+            }
+#else
             for (size_t i = 0; i < sample_count; ++i) {
                 int32_t s = samples16[i];
                 int32_t abs_s = std::abs(s);
                 if (abs_s > peak) peak = abs_s;
                 sum_sq += static_cast<double>(s) * s;
             }
+#endif
             break;
         }
         case 24:
@@ -219,12 +261,47 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
             break;
         case 32: {
             const int32_t* samples32 = reinterpret_cast<const int32_t*>(out_data);
+#ifdef __ARM_NEON
+            // NEON: process 4 x int32 at a time, shift >> 16 for metering range
+            int32x4_t vpeak = vdupq_n_s32(0);
+            int64x2_t vsum = vdupq_n_s64(0);
+            size_t i = 0;
+            size_t neon_end = sample_count & ~3u;
+            for (; i < neon_end; i += 4) {
+                int32x4_t v = vld1q_s32(samples32 + i);
+                int32x4_t shifted = vshrq_n_s32(v, 16);
+                int32x4_t va = vabsq_s32(shifted);
+                vpeak = vmaxq_s32(vpeak, va);
+                // Accumulate squares: widen to 64-bit
+                int32x2_t lo = vget_low_s32(shifted);
+                int32x2_t hi = vget_high_s32(shifted);
+                vsum = vmlal_s32(vsum, lo, lo);
+                vsum = vmlal_s32(vsum, hi, hi);
+            }
+            // Reduce NEON peak
+            int32x2_t pk2 = vmax_s32(vget_low_s32(vpeak), vget_high_s32(vpeak));
+            int32_t pk_arr[2];
+            vst1_s32(pk_arr, pk2);
+            peak = std::max(pk_arr[0], pk_arr[1]);
+            // Reduce NEON sum
+            int64_t sum_arr[2];
+            vst1q_s64(sum_arr, vsum);
+            sum_sq += static_cast<double>(sum_arr[0]) + static_cast<double>(sum_arr[1]);
+            // Scalar tail
+            for (; i < sample_count; ++i) {
+                int32_t s = samples32[i] >> 16;
+                int32_t abs_s = std::abs(s);
+                if (abs_s > peak) peak = abs_s;
+                sum_sq += static_cast<double>(s) * s;
+            }
+#else
             for (size_t i = 0; i < sample_count; ++i) {
                 int32_t s = samples32[i] >> 16;
                 int32_t abs_s = std::abs(s);
                 if (abs_s > peak) peak = abs_s;
                 sum_sq += static_cast<double>(s) * s;
             }
+#endif
             break;
         }
     }
@@ -241,10 +318,36 @@ void CapturePipeline::apply_gain(const uint8_t* src, uint8_t* dst,
         case 16: {
             const int16_t* sp = reinterpret_cast<const int16_t*>(src);
             int16_t* dp = reinterpret_cast<int16_t*>(dst);
+#ifdef __ARM_NEON
+            // NEON: fixed-point gain — scale by 2^14, multiply, shift back
+            // Supports gains roughly in [-4.0, +4.0] without overflow
+            int16_t gain_fp = static_cast<int16_t>(std::clamp(
+                gain * 16384.0, -32768.0, 32767.0));
+            int16x8_t vgain = vdupq_n_s16(gain_fp);
+            size_t i = 0;
+            size_t neon_end = sample_count & ~7u;
+            for (; i < neon_end; i += 8) {
+                int16x8_t v = vld1q_s16(sp + i);
+                // Multiply and take high half (>> 14 via qdmulh which does >> 15,
+                // but we use manual widening for exact >> 14)
+                int32x4_t lo = vmull_s16(vget_low_s16(v), vget_low_s16(vgain));
+                int32x4_t hi = vmull_s16(vget_high_s16(v), vget_high_s16(vgain));
+                // Shift right by 14 and saturating narrow back to int16
+                int16x4_t r_lo = vqshrn_n_s32(lo, 14);
+                int16x4_t r_hi = vqshrn_n_s32(hi, 14);
+                vst1q_s16(dp + i, vcombine_s16(r_lo, r_hi));
+            }
+            // Scalar tail
+            for (; i < sample_count; ++i) {
+                int32_t s = static_cast<int32_t>(sp[i] * gain);
+                dp[i] = static_cast<int16_t>(std::clamp(s, (int32_t)-32768, (int32_t)32767));
+            }
+#else
             for (size_t i = 0; i < sample_count; ++i) {
                 int32_t s = static_cast<int32_t>(sp[i] * gain);
                 dp[i] = static_cast<int16_t>(std::clamp(s, (int32_t)-32768, (int32_t)32767));
             }
+#endif
             break;
         }
         case 24:
@@ -263,11 +366,37 @@ void CapturePipeline::apply_gain(const uint8_t* src, uint8_t* dst,
         case 32: {
             const int32_t* sp = reinterpret_cast<const int32_t*>(src);
             int32_t* dp = reinterpret_cast<int32_t*>(dst);
+#ifdef __ARM_NEON
+            // NEON: fixed-point gain — scale by 2^14, multiply, shift back
+            // Supports gains roughly in [-131072, +131072] (well beyond audio range)
+            int32_t gain_fp = static_cast<int32_t>(std::clamp(
+                gain * 16384.0, (double)INT32_MIN, (double)INT32_MAX));
+            int32x4_t vgain = vdupq_n_s32(gain_fp);
+            size_t i = 0;
+            size_t neon_end = sample_count & ~3u;
+            for (; i < neon_end; i += 4) {
+                int32x4_t v = vld1q_s32(sp + i);
+                // Widen to 64-bit, multiply, shift right by 14, saturating narrow
+                int64x2_t prod_lo = vmull_s32(vget_low_s32(v), vget_low_s32(vgain));
+                int64x2_t prod_hi = vmull_s32(vget_high_s32(v), vget_high_s32(vgain));
+                // Shift right by 14
+                int32x2_t r_lo = vmovn_s64(vshrq_n_s64(prod_lo, 14));
+                int32x2_t r_hi = vmovn_s64(vshrq_n_s64(prod_hi, 14));
+                vst1q_s32(dp + i, vcombine_s32(r_lo, r_hi));
+            }
+            // Scalar tail
+            for (; i < sample_count; ++i) {
+                int64_t s = static_cast<int64_t>(sp[i] * gain);
+                dp[i] = static_cast<int32_t>(std::clamp(
+                    s, (int64_t)INT32_MIN, (int64_t)INT32_MAX));
+            }
+#else
             for (size_t i = 0; i < sample_count; ++i) {
                 int64_t s = static_cast<int64_t>(sp[i] * gain);
                 dp[i] = static_cast<int32_t>(std::clamp(
                     s, (int64_t)INT32_MIN, (int64_t)INT32_MAX));
             }
+#endif
             break;
         }
     }
