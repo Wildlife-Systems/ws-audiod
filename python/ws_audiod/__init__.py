@@ -128,6 +128,10 @@ class AudioClient:
         """Set mic boost / input gain in dB (0 = unity, 6 = ~2x, 20 = 10x)."""
         return self.set_parameter("gain_db", str(gain_db))
 
+    def set_dc_remove(self, enabled: bool) -> Response:
+        """Enable or disable DC offset removal filter."""
+        return self.set_parameter("dc_remove", "true" if enabled else "false")
+
     def close(self):
         if self._sock:
             self._sock.close()

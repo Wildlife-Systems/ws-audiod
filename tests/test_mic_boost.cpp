@@ -125,3 +125,124 @@ TEST(MicBoostTest, SilenceRemainsZero) {
         EXPECT_EQ(s, 0);
     }
 }
+
+// ---------------------------------------------------------------------------
+// DC offset removal tests
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Mirrors the DC removal IIR from capture_pipeline.cpp
+// y[n] = x[n] - x[n-1] + alpha * y[n-1]
+constexpr double DC_ALPHA = 0.999;
+
+void apply_dc_remove_16(int16_t* data, size_t frame_count,
+                         uint16_t channels,
+                         std::vector<double>& prev_x,
+                         std::vector<double>& prev_y) {
+    for (size_t f = 0; f < frame_count; ++f) {
+        for (uint16_t ch = 0; ch < channels; ++ch) {
+            size_t idx = f * channels + ch;
+            double x = data[idx];
+            double y = x - prev_x[ch] + DC_ALPHA * prev_y[ch];
+            prev_x[ch] = x;
+            prev_y[ch] = y;
+            data[idx] = static_cast<int16_t>(
+                std::clamp(static_cast<int32_t>(y), (int32_t)-32768, (int32_t)32767));
+        }
+    }
+}
+
+} // anonymous namespace
+
+TEST(DcRemoveTest, RemovesDcOffset) {
+    // Signal: constant DC of 1000 for 4000 samples (mono)
+    const size_t N = 4000;
+    std::vector<int16_t> data(N, 1000);
+    std::vector<double> px(1, 0.0), py(1, 0.0);
+
+    apply_dc_remove_16(data.data(), N, 1, px, py);
+
+    // After convergence, output should be near zero
+    // Check last 100 samples are close to 0
+    for (size_t i = N - 100; i < N; ++i) {
+        EXPECT_NEAR(data[i], 0, 5);
+    }
+}
+
+TEST(DcRemoveTest, PreservesAcSignal) {
+    // Generate a 1 kHz sine at 48 kHz, 1 second
+    const size_t N = 48000;
+    std::vector<int16_t> original(N);
+    for (size_t i = 0; i < N; ++i) {
+        original[i] = static_cast<int16_t>(
+            16000.0 * std::sin(2.0 * M_PI * 1000.0 * i / 48000.0));
+    }
+
+    std::vector<int16_t> filtered = original;
+    std::vector<double> px(1, 0.0), py(1, 0.0);
+    apply_dc_remove_16(filtered.data(), N, 1, px, py);
+
+    // After settling (skip first 500 samples), amplitude should be preserved
+    double sum_orig = 0, sum_filt = 0;
+    for (size_t i = 500; i < N; ++i) {
+        sum_orig += static_cast<double>(original[i]) * original[i];
+        sum_filt += static_cast<double>(filtered[i]) * filtered[i];
+    }
+    double rms_orig = std::sqrt(sum_orig / (N - 500));
+    double rms_filt = std::sqrt(sum_filt / (N - 500));
+
+    // RMS should be within 1% — filter barely affects 1 kHz
+    EXPECT_NEAR(rms_filt / rms_orig, 1.0, 0.01);
+}
+
+TEST(DcRemoveTest, RemovesOffsetFromAcSignal) {
+    // Sine + DC offset
+    const size_t N = 48000;
+    std::vector<int16_t> data(N);
+    for (size_t i = 0; i < N; ++i) {
+        data[i] = static_cast<int16_t>(
+            5000 + 10000.0 * std::sin(2.0 * M_PI * 500.0 * i / 48000.0));
+    }
+
+    std::vector<double> px(1, 0.0), py(1, 0.0);
+    apply_dc_remove_16(data.data(), N, 1, px, py);
+
+    // Mean of last half should be near zero (DC removed)
+    double sum = 0;
+    for (size_t i = N / 2; i < N; ++i) {
+        sum += data[i];
+    }
+    double mean = sum / (N / 2);
+    EXPECT_NEAR(mean, 0.0, 20.0);
+}
+
+TEST(DcRemoveTest, SilencePassesThrough) {
+    std::vector<int16_t> data(1000, 0);
+    std::vector<double> px(1, 0.0), py(1, 0.0);
+
+    apply_dc_remove_16(data.data(), 1000, 1, px, py);
+
+    for (auto s : data) {
+        EXPECT_EQ(s, 0);
+    }
+}
+
+TEST(DcRemoveTest, StereoIndependentChannels) {
+    // Ch0: DC offset 2000, Ch1: zero
+    const size_t frames = 2000;
+    std::vector<int16_t> data(frames * 2);
+    for (size_t f = 0; f < frames; ++f) {
+        data[f * 2 + 0] = 2000; // ch0
+        data[f * 2 + 1] = 0;    // ch1
+    }
+
+    std::vector<double> px(2, 0.0), py(2, 0.0);
+    apply_dc_remove_16(data.data(), frames, 2, px, py);
+
+    // Ch0 should converge toward 0, ch1 should stay 0
+    for (size_t f = frames - 50; f < frames; ++f) {
+        EXPECT_NEAR(data[f * 2 + 0], 0, 10);
+        EXPECT_EQ(data[f * 2 + 1], 0);
+    }
+}

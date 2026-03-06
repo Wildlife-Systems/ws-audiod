@@ -79,6 +79,15 @@ private:
                     size_t sample_count, uint16_t bits_per_sample,
                     double gain) const;
 
+    // DC offset removal (single-pole high-pass IIR per channel)
+    std::atomic<bool> dc_remove_{false};
+    std::vector<double> dc_prev_x_;  // previous input per channel
+    std::vector<double> dc_prev_y_;  // previous output per channel
+    static constexpr double DC_ALPHA = 0.999;
+
+    void apply_dc_remove(uint8_t* data, size_t sample_count,
+                         uint16_t channels, uint16_t bits_per_sample);
+
     // Level metering (updated from capture thread)
     std::atomic<int16_t> peak_level_{0};
     std::atomic<double> rms_level_{0.0};

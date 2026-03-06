@@ -2,6 +2,7 @@
 #include "audio_daemon/logger.hpp"
 #include <cmath>
 #include <algorithm>
+#include <cstring>
 #include <sstream>
 
 namespace audio_daemon {
@@ -14,6 +15,13 @@ CapturePipeline::CapturePipeline(const DaemonConfig& config)
     if (config.audio.gain_db != 0.0) {
         LOG_INFO("Mic boost: ", config.audio.gain_db, " dB (linear ",
                  gain_linear_.load(), ")");
+    }
+
+    dc_remove_.store(config.audio.dc_remove, std::memory_order_relaxed);
+    dc_prev_x_.resize(config.audio.channels, 0.0);
+    dc_prev_y_.resize(config.audio.channels, 0.0);
+    if (config.audio.dc_remove) {
+        LOG_INFO("DC offset removal enabled");
     }
 }
 
@@ -124,6 +132,16 @@ bool CapturePipeline::set_parameter(const std::string& key,
         LOG_INFO("Mic boost set to ", db, " dB");
         return true;
     }
+    if (key == "dc_remove") {
+        bool enabled = (value == "true" || value == "1");
+        dc_remove_.store(enabled, std::memory_order_relaxed);
+        if (!enabled) {
+            std::fill(dc_prev_x_.begin(), dc_prev_x_.end(), 0.0);
+            std::fill(dc_prev_y_.begin(), dc_prev_y_.end(), 0.0);
+        }
+        LOG_INFO("DC offset removal ", enabled ? "enabled" : "disabled");
+        return true;
+    }
     LOG_WARN("Unknown parameter: ", key);
     return false;
 }
@@ -145,6 +163,20 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
         apply_gain(data, gain_buffer_.data(), sample_count,
                    meta.bits_per_sample, gain);
         out_data = gain_buffer_.data();
+    }
+
+    // Apply DC offset removal (needs mutable buffer)
+    if (dc_remove_.load(std::memory_order_relaxed)) {
+        if (out_data == data) {
+            // Haven't copied yet — need a mutable buffer
+            if (gain_buffer_.size() < data_size) {
+                gain_buffer_.resize(data_size);
+            }
+            std::memcpy(gain_buffer_.data(), data, data_size);
+            out_data = gain_buffer_.data();
+        }
+        apply_dc_remove(gain_buffer_.data(), sample_count,
+                        meta.channels, meta.bits_per_sample);
     }
 
     // Feed ring buffer
@@ -231,6 +263,70 @@ void CapturePipeline::apply_gain(const uint8_t* src, uint8_t* dst,
     }
 }
 
+void CapturePipeline::apply_dc_remove(uint8_t* data, size_t sample_count,
+                                      uint16_t channels,
+                                      uint16_t bits_per_sample) {
+    // Single-pole high-pass IIR: y[n] = x[n] - x[n-1] + alpha * y[n-1]
+    size_t bps = bits_per_sample / 8;
+    size_t frame_count = sample_count / channels;
+
+    for (size_t f = 0; f < frame_count; ++f) {
+        for (uint16_t ch = 0; ch < channels; ++ch) {
+            size_t idx = f * channels + ch;
+            uint8_t* p = data + idx * bps;
+            double x = 0.0;
+
+            switch (bits_per_sample) {
+                case 16:
+                    x = static_cast<int16_t>(p[0] | (p[1] << 8));
+                    break;
+                case 24: {
+                    int32_t s = p[0] | (p[1] << 8) | (p[2] << 16);
+                    if (s & 0x800000) s |= 0xFF000000;
+                    x = s;
+                    break;
+                }
+                case 32:
+                    x = static_cast<int32_t>(
+                        p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24));
+                    break;
+            }
+
+            double y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
+            dc_prev_x_[ch] = x;
+            dc_prev_y_[ch] = y;
+
+            switch (bits_per_sample) {
+                case 16: {
+                    int32_t out = std::clamp(static_cast<int32_t>(y),
+                                            (int32_t)-32768, (int32_t)32767);
+                    p[0] = static_cast<uint8_t>(out & 0xFF);
+                    p[1] = static_cast<uint8_t>((out >> 8) & 0xFF);
+                    break;
+                }
+                case 24: {
+                    int32_t out = std::clamp(static_cast<int32_t>(y),
+                                            (int32_t)-8388608, (int32_t)8388607);
+                    p[0] = static_cast<uint8_t>(out & 0xFF);
+                    p[1] = static_cast<uint8_t>((out >> 8) & 0xFF);
+                    p[2] = static_cast<uint8_t>((out >> 16) & 0xFF);
+                    break;
+                }
+                case 32: {
+                    int64_t out64 = static_cast<int64_t>(y);
+                    int32_t out = static_cast<int32_t>(std::clamp(
+                        out64, (int64_t)INT32_MIN, (int64_t)INT32_MAX));
+                    p[0] = static_cast<uint8_t>(out & 0xFF);
+                    p[1] = static_cast<uint8_t>((out >> 8) & 0xFF);
+                    p[2] = static_cast<uint8_t>((out >> 16) & 0xFF);
+                    p[3] = static_cast<uint8_t>((out >> 24) & 0xFF);
+                    break;
+                }
+            }
+        }
+    }
+}
+
 std::string CapturePipeline::get_status_json() const {
     auto stats = get_stats();
     std::ostringstream oss;
@@ -241,6 +337,7 @@ std::string CapturePipeline::get_status_json() const {
         << R"(,"bits":)" << config_.audio.bits_per_sample
         << R"(,"device":")" << config_.audio.device << R"(")"
         << R"(,"gain_db":)" << gain_db_.load(std::memory_order_relaxed)
+        << R"(,"dc_remove":)" << (dc_remove_.load(std::memory_order_relaxed) ? "true" : "false")
         << R"(,"ring_buffer_frames":)" << stats.ring_buffer_frames
         << "}";
 
