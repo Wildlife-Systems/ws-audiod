@@ -4,7 +4,7 @@ After=sound.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/ws-audiod -c /etc/ws/audiod/ws-audiod.conf
+ExecStart=/usr/bin/ws-audiod -c /etc/ws/ws-audiod.conf
 Restart=always
 RestartSec=5
 RuntimeDirectory=ws-audiod

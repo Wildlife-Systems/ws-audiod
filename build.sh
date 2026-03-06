@@ -65,10 +65,10 @@ install_daemon() {
 
     sudo mkdir -p /var/lib/ws-audiod/clips
     sudo mkdir -p /var/lib/ws-audiod/blocks
-    sudo mkdir -p /etc/ws/audiod
+    sudo mkdir -p /etc/ws
 
-    if [ ! -f /etc/ws/audiod/ws-audiod.conf ]; then
-        sudo cp ../config/ws-audiod.conf /etc/ws/audiod/
+    if [ ! -f /etc/ws/ws-audiod.conf ]; then
+        sudo cp ../config/ws-audiod.conf /etc/ws/
     fi
 
     sudo cp ../config/ws-audiod.service /etc/systemd/system/

@@ -103,7 +103,7 @@ install(DIRECTORY include/audio_daemon
 
 # Install default config
 install(FILES config/ws-audiod.conf
-    DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/ws-audiod
+    DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/ws
 )
 
 # Install Python examples

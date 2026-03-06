@@ -195,7 +195,7 @@ Use **UP/+** and **DOWN/-** to adjust mic boost in 1 dB steps, **q** to quit.
 
 ## Configuration
 
-`/etc/ws/audiod/ws-audiod.conf`:
+`/etc/ws/ws-audiod.conf`:
 
 ```ini
 [daemon]
@@ -279,7 +279,7 @@ Each audio device requires a unique control socket path and shared memory
 identifier.
 
 ```ini
-# /etc/ws/audiod/garden_mic.conf
+# /etc/ws/garden_mic.conf
 [daemon]
 socket_path = /run/ws-audiod/garden_mic.sock
 clips_dir = /var/ws/audiod/garden_mic/clips
@@ -301,7 +301,7 @@ After=sound.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/ws-audiod -c /etc/ws/audiod/%i.conf
+ExecStart=/usr/bin/ws-audiod -c /etc/ws/%i.conf
 Restart=always
 RestartSec=5
 
