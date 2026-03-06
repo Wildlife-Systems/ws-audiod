@@ -193,27 +193,40 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
     }
 
     // Update level metering (use boosted data)
+    // Switch hoisted outside the loop so the inner loop is tight and vectorisable.
     int32_t peak = 0;
     double sum_sq = 0.0;
-    for (size_t i = 0; i < sample_count; ++i) {
-        int32_t s = 0;
-        const uint8_t* p = out_data + i * bytes_per_sample;
-        switch (meta.bits_per_sample) {
-            case 16:
-                s = static_cast<int16_t>(p[0] | (p[1] << 8));
-                break;
-            case 24:
-                s = p[0] | (p[1] << 8) | (p[2] << 16);
-                if (s & 0x800000) s |= 0xFF000000; // sign extend
-                break;
-            case 32:
-                s = static_cast<int32_t>(p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24));
-                s >>= 16; // scale to 16-bit range for metering
-                break;
+    switch (meta.bits_per_sample) {
+        case 16: {
+            const int16_t* samples16 = reinterpret_cast<const int16_t*>(out_data);
+            for (size_t i = 0; i < sample_count; ++i) {
+                int32_t s = samples16[i];
+                int32_t abs_s = std::abs(s);
+                if (abs_s > peak) peak = abs_s;
+                sum_sq += static_cast<double>(s) * s;
+            }
+            break;
         }
-        int32_t abs_s = std::abs(s);
-        if (abs_s > peak) peak = abs_s;
-        sum_sq += static_cast<double>(s) * s;
+        case 24:
+            for (size_t i = 0; i < sample_count; ++i) {
+                const uint8_t* p = out_data + i * 3;
+                int32_t s = p[0] | (p[1] << 8) | (p[2] << 16);
+                if (s & 0x800000) s |= 0xFF000000;
+                int32_t abs_s = std::abs(s);
+                if (abs_s > peak) peak = abs_s;
+                sum_sq += static_cast<double>(s) * s;
+            }
+            break;
+        case 32: {
+            const int32_t* samples32 = reinterpret_cast<const int32_t*>(out_data);
+            for (size_t i = 0; i < sample_count; ++i) {
+                int32_t s = samples32[i] >> 16;
+                int32_t abs_s = std::abs(s);
+                if (abs_s > peak) peak = abs_s;
+                sum_sq += static_cast<double>(s) * s;
+            }
+            break;
+        }
     }
     peak_level_.store(static_cast<int16_t>(std::min(peak, (int32_t)32767)), std::memory_order_relaxed);
     rms_level_.store(std::sqrt(sum_sq / static_cast<double>(sample_count)),
@@ -224,41 +237,38 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
 void CapturePipeline::apply_gain(const uint8_t* src, uint8_t* dst,
                                  size_t sample_count, uint16_t bits_per_sample,
                                  double gain) const {
-    size_t bps = bits_per_sample / 8;
-    for (size_t i = 0; i < sample_count; ++i) {
-        const uint8_t* sp = src + i * bps;
-        uint8_t* dp = dst + i * bps;
-        switch (bits_per_sample) {
-            case 16: {
-                int32_t s = static_cast<int16_t>(sp[0] | (sp[1] << 8));
-                s = static_cast<int32_t>(s * gain);
-                s = std::clamp(s, (int32_t)-32768, (int32_t)32767);
-                dp[0] = static_cast<uint8_t>(s & 0xFF);
-                dp[1] = static_cast<uint8_t>((s >> 8) & 0xFF);
-                break;
+    switch (bits_per_sample) {
+        case 16: {
+            const int16_t* sp = reinterpret_cast<const int16_t*>(src);
+            int16_t* dp = reinterpret_cast<int16_t*>(dst);
+            for (size_t i = 0; i < sample_count; ++i) {
+                int32_t s = static_cast<int32_t>(sp[i] * gain);
+                dp[i] = static_cast<int16_t>(std::clamp(s, (int32_t)-32768, (int32_t)32767));
             }
-            case 24: {
-                int32_t s = sp[0] | (sp[1] << 8) | (sp[2] << 16);
-                if (s & 0x800000) s |= 0xFF000000;
-                s = static_cast<int32_t>(s * gain);
-                s = std::clamp(s, (int32_t)-8388608, (int32_t)8388607);
-                dp[0] = static_cast<uint8_t>(s & 0xFF);
-                dp[1] = static_cast<uint8_t>((s >> 8) & 0xFF);
-                dp[2] = static_cast<uint8_t>((s >> 16) & 0xFF);
-                break;
+            break;
+        }
+        case 24:
+            for (size_t i = 0; i < sample_count; ++i) {
+                const uint8_t* s = src + i * 3;
+                uint8_t* d = dst + i * 3;
+                int32_t v = s[0] | (s[1] << 8) | (s[2] << 16);
+                if (v & 0x800000) v |= 0xFF000000;
+                v = static_cast<int32_t>(v * gain);
+                v = std::clamp(v, (int32_t)-8388608, (int32_t)8388607);
+                d[0] = static_cast<uint8_t>(v & 0xFF);
+                d[1] = static_cast<uint8_t>((v >> 8) & 0xFF);
+                d[2] = static_cast<uint8_t>((v >> 16) & 0xFF);
             }
-            case 32: {
-                int64_t s = static_cast<int32_t>(
-                    sp[0] | (sp[1] << 8) | (sp[2] << 16) | (sp[3] << 24));
-                s = static_cast<int64_t>(s * gain);
-                int32_t c = static_cast<int32_t>(std::clamp(
+            break;
+        case 32: {
+            const int32_t* sp = reinterpret_cast<const int32_t*>(src);
+            int32_t* dp = reinterpret_cast<int32_t*>(dst);
+            for (size_t i = 0; i < sample_count; ++i) {
+                int64_t s = static_cast<int64_t>(sp[i] * gain);
+                dp[i] = static_cast<int32_t>(std::clamp(
                     s, (int64_t)INT32_MIN, (int64_t)INT32_MAX));
-                dp[0] = static_cast<uint8_t>(c & 0xFF);
-                dp[1] = static_cast<uint8_t>((c >> 8) & 0xFF);
-                dp[2] = static_cast<uint8_t>((c >> 16) & 0xFF);
-                dp[3] = static_cast<uint8_t>((c >> 24) & 0xFF);
-                break;
             }
+            break;
         }
     }
 }
@@ -267,62 +277,56 @@ void CapturePipeline::apply_dc_remove(uint8_t* data, size_t sample_count,
                                       uint16_t channels,
                                       uint16_t bits_per_sample) {
     // Single-pole high-pass IIR: y[n] = x[n] - x[n-1] + alpha * y[n-1]
-    size_t bps = bits_per_sample / 8;
     size_t frame_count = sample_count / channels;
 
-    for (size_t f = 0; f < frame_count; ++f) {
-        for (uint16_t ch = 0; ch < channels; ++ch) {
-            size_t idx = f * channels + ch;
-            uint8_t* p = data + idx * bps;
-            double x = 0.0;
-
-            switch (bits_per_sample) {
-                case 16:
-                    x = static_cast<int16_t>(p[0] | (p[1] << 8));
-                    break;
-                case 24: {
+    switch (bits_per_sample) {
+        case 16: {
+            int16_t* samples = reinterpret_cast<int16_t*>(data);
+            for (size_t f = 0; f < frame_count; ++f) {
+                for (uint16_t ch = 0; ch < channels; ++ch) {
+                    double x = samples[f * channels + ch];
+                    double y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
+                    dc_prev_x_[ch] = x;
+                    dc_prev_y_[ch] = y;
+                    samples[f * channels + ch] = static_cast<int16_t>(
+                        std::clamp(static_cast<int32_t>(y), (int32_t)-32768, (int32_t)32767));
+                }
+            }
+            break;
+        }
+        case 24:
+            for (size_t f = 0; f < frame_count; ++f) {
+                for (uint16_t ch = 0; ch < channels; ++ch) {
+                    size_t idx = (f * channels + ch) * 3;
+                    uint8_t* p = data + idx;
                     int32_t s = p[0] | (p[1] << 8) | (p[2] << 16);
                     if (s & 0x800000) s |= 0xFF000000;
-                    x = s;
-                    break;
-                }
-                case 32:
-                    x = static_cast<int32_t>(
-                        p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24));
-                    break;
-            }
-
-            double y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
-            dc_prev_x_[ch] = x;
-            dc_prev_y_[ch] = y;
-
-            switch (bits_per_sample) {
-                case 16: {
-                    int32_t out = std::clamp(static_cast<int32_t>(y),
-                                            (int32_t)-32768, (int32_t)32767);
-                    p[0] = static_cast<uint8_t>(out & 0xFF);
-                    p[1] = static_cast<uint8_t>((out >> 8) & 0xFF);
-                    break;
-                }
-                case 24: {
+                    double x = s;
+                    double y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
+                    dc_prev_x_[ch] = x;
+                    dc_prev_y_[ch] = y;
                     int32_t out = std::clamp(static_cast<int32_t>(y),
                                             (int32_t)-8388608, (int32_t)8388607);
                     p[0] = static_cast<uint8_t>(out & 0xFF);
                     p[1] = static_cast<uint8_t>((out >> 8) & 0xFF);
                     p[2] = static_cast<uint8_t>((out >> 16) & 0xFF);
-                    break;
-                }
-                case 32: {
-                    int64_t out64 = static_cast<int64_t>(y);
-                    int32_t out = static_cast<int32_t>(std::clamp(
-                        out64, (int64_t)INT32_MIN, (int64_t)INT32_MAX));
-                    p[0] = static_cast<uint8_t>(out & 0xFF);
-                    p[1] = static_cast<uint8_t>((out >> 8) & 0xFF);
-                    p[2] = static_cast<uint8_t>((out >> 16) & 0xFF);
-                    p[3] = static_cast<uint8_t>((out >> 24) & 0xFF);
-                    break;
                 }
             }
+            break;
+        case 32: {
+            int32_t* samples = reinterpret_cast<int32_t*>(data);
+            for (size_t f = 0; f < frame_count; ++f) {
+                for (uint16_t ch = 0; ch < channels; ++ch) {
+                    double x = samples[f * channels + ch];
+                    double y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
+                    dc_prev_x_[ch] = x;
+                    dc_prev_y_[ch] = y;
+                    int64_t out64 = static_cast<int64_t>(y);
+                    samples[f * channels + ch] = static_cast<int32_t>(std::clamp(
+                        out64, (int64_t)INT32_MIN, (int64_t)INT32_MAX));
+                }
+            }
+            break;
         }
     }
 }
