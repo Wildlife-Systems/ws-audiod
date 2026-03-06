@@ -342,7 +342,7 @@ int main(int argc, char* argv[]) {
             std::cout << "\033[" << (header_lines + 1 + ch) << ";1H"
                       << "\033[K"; // clear line
 
-            char label[8];
+            char label[16];
             std::snprintf(label, sizeof(label), "CH%d ", ch);
             draw_bar(rms_db, peak_hold_db[ch], label);
         }
