@@ -78,6 +78,11 @@ add_executable(audio_consumer
 )
 target_link_libraries(audio_consumer rt pthread)
 
+add_executable(audio_mon
+    examples/audio_mon.cpp
+)
+target_link_libraries(audio_mon rt pthread)
+
 # GNUInstallDirs for proper FHS-compliant paths
 include(GNUInstallDirs)
 
@@ -87,7 +92,7 @@ install(TARGETS ws-audiod
 )
 
 # Install example executables
-install(TARGETS clip_client audio_consumer
+install(TARGETS clip_client audio_consumer audio_mon
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 

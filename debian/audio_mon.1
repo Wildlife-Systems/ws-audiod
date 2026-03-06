@@ -1,0 +1,39 @@
+.TH AUDIO_MON 1 "March 2026" "1.0.0" "ws-audiod"
+.SH NAME
+audio_mon \- real-time terminal audio monitor for ws\-audiod
+.SH SYNOPSIS
+.B audio_mon
+.RB [ \-s
+.IR shm_name ]
+.RB [ \-S
+.IR socket_path ]
+.RB [ \-h ]
+.SH DESCRIPTION
+.B audio_mon
+reads audio samples from the ws\-audiod shared memory region and displays
+a live per-channel level meter in the terminal. It also allows adjusting the
+daemon's mic boost (gain) via keyboard controls.
+.PP
+Requires the daemon to be running with \fBenable_sample_sharing=true\fR.
+.SH OPTIONS
+.TP
+.BR \-s ", " \-\-shm " " \fINAME\fR
+Shared memory segment name (default: /ws_audiod_samples).
+.TP
+.BR \-S ", " \-\-socket " " \fIPATH\fR
+Control socket path (default: /run/ws\-audiod/control.sock).
+.TP
+.BR \-h ", " \-\-help
+Show usage information and exit.
+.SH KEYBOARD CONTROLS
+.TP
+.BR UP " / " +
+Increase mic boost by 1 dB.
+.TP
+.BR DOWN " / " \-
+Decrease mic boost by 1 dB.
+.TP
+.B q
+Quit.
+.SH AUTHOR
+Ed Baker <ed@ebaker.me.uk>
