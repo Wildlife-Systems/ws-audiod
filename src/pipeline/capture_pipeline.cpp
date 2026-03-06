@@ -77,6 +77,11 @@ bool CapturePipeline::initialize() {
         }
     }
 
+    // Pre-allocate gain/DC buffer to avoid resizing during capture
+    size_t max_chunk_bytes = static_cast<size_t>(capture_->actual_period_size())
+                             * ch * (bps / 8);
+    gain_buffer_.resize(max_chunk_bytes);
+
     // Wire capture callback
     capture_->set_callback(
         [this](const AudioChunkMeta& meta, const uint8_t* data, size_t count) {

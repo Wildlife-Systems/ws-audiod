@@ -14,6 +14,15 @@ endif()
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
+# Link-time optimization for Release builds
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT lto_supported)
+    if(lto_supported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+    endif()
+endif()
+
 # ARM/NEON: use native CPU tuning (enables NEON on aarch64 Pi 3/4/5)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm")
     add_compile_options(-mcpu=native)

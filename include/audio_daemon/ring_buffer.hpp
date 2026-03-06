@@ -52,7 +52,8 @@ public:
 
 private:
     std::vector<uint8_t> buffer_;
-    size_t capacity_frames_;
+    size_t capacity_frames_;     // always a power of 2
+    size_t capacity_mask_;       // capacity_frames_ - 1, for fast modulo
     uint16_t channels_;
     uint16_t bytes_per_sample_;
     std::atomic<size_t> write_pos_{0};   // next write position (in frames)

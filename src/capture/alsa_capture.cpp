@@ -1,6 +1,9 @@
 #include "audio_daemon/alsa_capture.hpp"
 #include "audio_daemon/logger.hpp"
 #include <cstring>
+#include <cerrno>
+#include <sched.h>
+#include <pthread.h>
 
 namespace audio_daemon {
 
@@ -140,6 +143,24 @@ void AlsaCapture::stop() {
 
 void AlsaCapture::capture_thread_func() {
     LOG_DEBUG("Capture thread started");
+
+    // Elevate to SCHED_FIFO realtime priority to prevent xruns
+    struct sched_param param;
+    param.sched_priority = 70;
+    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
+        LOG_WARN("Could not set SCHED_FIFO (need CAP_SYS_NICE): ",
+                 strerror(errno));
+    } else {
+        LOG_INFO("Capture thread: SCHED_FIFO priority ", param.sched_priority);
+    }
+
+    // Pin to CPU 0 to avoid cache migration
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(0, &cpuset);
+    if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) != 0) {
+        LOG_WARN("Could not set CPU affinity: ", strerror(errno));
+    }
 
     while (running_) {
         snd_pcm_sframes_t frames = snd_pcm_readi(
