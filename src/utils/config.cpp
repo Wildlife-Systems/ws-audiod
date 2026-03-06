@@ -55,10 +55,6 @@ DaemonConfig load_config(const std::string& path) {
             else if (key == "shm_name")        config.shm_name = value;
             else if (key == "ring_buffer_seconds")
                 config.ring_buffer_seconds = std::stoul(value);
-            else if (key == "enable_streaming")
-                config.enable_streaming = (value == "true" || value == "1");
-            else if (key == "stream_port")
-                config.stream_port = static_cast<uint16_t>(std::stoul(value));
             else if (key == "enable_sample_sharing")
                 config.enable_sample_sharing = (value == "true" || value == "1");
         } else if (section == "audio") {

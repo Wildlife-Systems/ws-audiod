@@ -61,9 +61,6 @@ struct DaemonConfig {
 
     uint32_t ring_buffer_seconds = 60;  // Rolling buffer length
 
-    bool enable_streaming = false;
-    uint16_t stream_port = 8001;
-
     bool enable_sample_sharing = false; // Share raw samples via shm
 
     AudioConfig audio;

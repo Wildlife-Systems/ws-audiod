@@ -21,8 +21,6 @@ TEST(CommonTest, DefaultDaemonConfig) {
     EXPECT_EQ(cfg.socket_path, DEFAULT_SOCKET_PATH);
     EXPECT_EQ(cfg.clips_dir, DEFAULT_CLIPS_DIR);
     EXPECT_EQ(cfg.ring_buffer_seconds, 60u);
-    EXPECT_FALSE(cfg.enable_streaming);
-    EXPECT_EQ(cfg.stream_port, 8001);
     EXPECT_FALSE(cfg.enable_sample_sharing);
 }
 

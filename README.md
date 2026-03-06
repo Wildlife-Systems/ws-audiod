@@ -23,8 +23,8 @@ and PipeWire add unnecessary complexity to headless embedded deployments.
 
 ws-audiod operates as infrastructure rather than an end-user application. The
 daemon maintains exclusive ALSA device ownership; consumers connect via shared
-memory (zero-copy sample access), Unix domain socket (control interface), or
-TCP streaming (remote access). Consumer process failures are isolated and do not
+memory (zero-copy sample access) or Unix domain socket (control interface).
+Consumer process failures are isolated and do not
 affect the daemon or other connected consumers.
 
 ws-audiod is intended for custom deployments that require reliable, shared audio
@@ -36,7 +36,6 @@ infrastructure without reimplementing low-level ALSA capture and distribution lo
 - Concurrent multi-consumer access (e.g. with provided C++ and Python client libraries)
 - On-demand audio clip extraction from rolling buffer
 - Pre-event and post-event clip extraction
-- Remote streaming via Icecast-compatible HTTP
 - Zero-copy sample distribution via POSIX shared memory
 - Gapless block recording (consecutive X-minute files with zero inter-file sample gap)
 - Configurable sample rate, bit depth, and channel count
