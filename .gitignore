@@ -1,0 +1,35 @@
+# Build
+build/
+obj-*/
+cmake-build-*/
+compile_commands.json
+CMakeCache.txt
+install_manifest.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+
+# Debian packaging
+*.deb
+*.changes
+*.buildinfo
+debian/.debhelper/
+debian/ws-audiod/
+debian/files
+debian/debhelper-build-stamp
+debian/*.substvars
+debian/*.postrm.debhelper

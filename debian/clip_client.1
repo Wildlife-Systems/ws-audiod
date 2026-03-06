@@ -1,0 +1,31 @@
+.TH CLIP_CLIENT 1 "March 2026" "1.0.0" "ws-audiod"
+.SH NAME
+clip_client \- extract audio clips from ws\-audiod ring buffer
+.SH SYNOPSIS
+.B clip_client
+.I start_offset
+.I end_offset
+.RI [ format ]
+.SH DESCRIPTION
+.B clip_client
+connects to the ws\-audiod control socket and extracts audio clips from the
+daemon's rolling ring buffer.
+.SH ARGUMENTS
+.TP
+.I start_offset
+Start time in seconds. Can be negative for pre-event capture.
+.TP
+.I end_offset
+End time in seconds, relative to now.
+.TP
+.I format
+Output format: \fBwav\fR (default) or \fBflac\fR.
+.SH EXAMPLES
+.TP
+Extract a 10-second WAV clip:
+.B clip_client \-5 5
+.TP
+Extract a 30-second FLAC clip from the buffer:
+.B clip_client \-30 0 flac
+.SH AUTHOR
+Ed Baker <ed@ebaker.me.uk>

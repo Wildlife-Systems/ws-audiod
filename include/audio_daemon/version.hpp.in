@@ -1,0 +1,7 @@
+#pragma once
+
+namespace audio_daemon {
+
+constexpr const char* VERSION = "@PROJECT_VERSION@";
+
+} // namespace audio_daemon

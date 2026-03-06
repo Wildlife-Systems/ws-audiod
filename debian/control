@@ -1,0 +1,16 @@
+Source: ws-audiod
+Section: sound
+Priority: optional
+Maintainer: Ed Baker <ed@ebaker.me.uk>
+Build-Depends: debhelper-compat (= 13), cmake, libasound2-dev, libsndfile1-dev, pkg-config
+Standards-Version: 4.6.2
+Homepage: https://github.com/Wildlife-Systems/ws-audiod
+
+Package: ws-audiod
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Multi-consumer audio capture daemon
+ ws-audiod provides continuous ALSA audio capture with concurrent
+ multi-consumer access through a single device interface. Features
+ include ring-buffer clip extraction, gapless block recording, and
+ zero-copy shared memory distribution.

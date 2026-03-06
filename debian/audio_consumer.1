@@ -1,0 +1,17 @@
+.TH AUDIO_CONSUMER 1 "March 2026" "1.0.0" "ws-audiod"
+.SH NAME
+audio_consumer \- shared memory audio consumer for ws\-audiod
+.SH SYNOPSIS
+.B audio_consumer
+.RI [ shm_name ]
+.SH DESCRIPTION
+.B audio_consumer
+reads raw audio periods directly from the ws\-audiod shared memory region,
+providing zero-copy access for real-time audio processing. Requires the daemon
+to be running with \fBenable_sample_sharing=true\fR.
+.SH ARGUMENTS
+.TP
+.I shm_name
+Shared memory segment name (default: /ws_audiod_samples).
+.SH AUTHOR
+Ed Baker <ed@ebaker.me.uk>

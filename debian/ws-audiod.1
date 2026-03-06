@@ -1,0 +1,62 @@
+.TH WS\-AUDIOD 1 "March 2026" "1.0.0" "ws-audiod"
+.SH NAME
+ws\-audiod \- multi-consumer audio capture daemon
+.SH SYNOPSIS
+.B ws\-audiod
+.RB [ \-c
+.IR FILE ]
+.RB [ \-s
+.IR PATH ]
+.RB [ \-D
+.IR DEVICE ]
+.RB [ \-r
+.IR RATE ]
+.RB [ \-C
+.IR N ]
+.RB [ \-b
+.IR N ]
+.RB [ \-g
+.IR DB ]
+.RB [ \-p
+.IR N ]
+.RB [ \-B
+.IR SECS ]
+.RB [ \-d ]
+.SH DESCRIPTION
+.B ws\-audiod
+provides continuous ALSA audio capture with concurrent multi-consumer access
+through a single device interface. Features include ring-buffer clip extraction,
+gapless block recording, and zero-copy shared memory distribution.
+.SH OPTIONS
+.TP
+.BI \-c " FILE" "\fR,\fP \-\-config " FILE
+Configuration file path.
+.TP
+.BI \-s " PATH" "\fR,\fP \-\-socket " PATH
+Control socket path.
+.TP
+.BI \-D " DEVICE" "\fR,\fP \-\-device " DEVICE
+ALSA device (default: default).
+.TP
+.BI \-r " RATE" "\fR,\fP \-\-rate " RATE
+Sample rate in Hz (default: 48000).
+.TP
+.BI \-C " N" "\fR,\fP \-\-channels " N
+Number of channels (default: 1).
+.TP
+.BI \-b " N" "\fR,\fP \-\-bits " N
+Bit depth: 16 or 24 (default: 16).
+.TP
+.BI \-g " DB" "\fR,\fP \-\-gain " DB
+Input gain in dB (default: 0.0).
+.TP
+.BI \-p " N" "\fR,\fP \-\-period\-size " N
+ALSA period size in frames (default: 1024).
+.TP
+.BI \-B " SECS" "\fR,\fP \-\-block\-record " SECS
+Enable gapless block recording with SECS-second files.
+.TP
+.BR \-d ", " \-\-debug
+Enable debug logging.
+.SH AUTHOR
+Ed Baker <ed@ebaker.me.uk>

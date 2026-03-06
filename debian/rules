@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+
+export DEB_VERSION ?= $(shell dpkg-parsechangelog -S Version | sed 's/-.*//')
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DBUILD_TESTING=OFF -DPROJECT_VERSION=$(DEB_VERSION)
+
+override_dh_auto_install:
+	dh_auto_install
+	mkdir -p debian/ws-audiod/etc/systemd/system
+	cp config/audio-daemon.service debian/ws-audiod/etc/systemd/system/
+	mkdir -p debian/ws-audiod/var/lib/ws-audiod/clips
+	mkdir -p debian/ws-audiod/var/lib/ws-audiod/blocks
