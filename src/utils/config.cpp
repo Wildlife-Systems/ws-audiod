@@ -73,6 +73,8 @@ DaemonConfig load_config(const std::string& path) {
                 config.audio.gain_db = std::stod(value);
             else if (key == "dc_remove")
                 config.audio.dc_remove = (value == "true" || value == "1");
+            else if (key == "cpu_affinity")
+                config.audio.cpu_affinity = std::stoi(value);
         } else if (section == "block_recorder") {
             if (key == "enabled")
                 config.block_recorder.enabled = (value == "true" || value == "1");

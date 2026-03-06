@@ -42,6 +42,7 @@ struct AudioConfig {
     uint32_t buffer_periods = 4;       // Number of periods in ALSA buffer
     double gain_db = 0.0;              // Input gain in dB
     bool dc_remove = false;            // DC offset removal filter
+    int cpu_affinity = -1;             // CPU core to pin capture thread (-1 = no pinning)
 };
 
 // Block recorder configuration

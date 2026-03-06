@@ -154,12 +154,17 @@ void AlsaCapture::capture_thread_func() {
         LOG_INFO("Capture thread: SCHED_FIFO priority ", param.sched_priority);
     }
 
-    // Pin to CPU 0 to avoid cache migration
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(0, &cpuset);
-    if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) != 0) {
-        LOG_WARN("Could not set CPU affinity: ", strerror(errno));
+    // Pin to configured CPU core to avoid cache migration
+    if (config_.cpu_affinity >= 0) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(config_.cpu_affinity, &cpuset);
+        if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) != 0) {
+            LOG_WARN("Could not pin to CPU ", config_.cpu_affinity, ": ",
+                     strerror(errno));
+        } else {
+            LOG_INFO("Capture thread pinned to CPU ", config_.cpu_affinity);
+        }
     }
 
     while (running_) {
