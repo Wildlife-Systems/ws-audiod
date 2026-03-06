@@ -20,6 +20,7 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <vector>
 #include <getopt.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -224,8 +225,9 @@ int main(int argc, char* argv[]) {
     std::cout << "audio-mon — ws-audiod live monitor\n"
               << "  " << sample_rate << " Hz / " << bits << "-bit / "
               << channels << " ch / " << period_frames << " frames\n"
-              << "  UP/DOWN or +/-: adjust gain   q: quit\n"
-              << std::string(70, '─') << "\n";
+              << "  UP/DOWN or +/-: adjust gain   q: quit\n";
+    for (int i = 0; i < 70; ++i) std::cout << '-';
+    std::cout << '\n';
 
     uint64_t last_counter = 0;
     const int header_lines = 4;
