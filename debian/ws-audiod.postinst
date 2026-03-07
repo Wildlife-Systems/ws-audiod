@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# Remove obsolete config file from earlier non-packaged installs
+if [ "$1" = "configure" ]; then
+    rm -f /etc/ws/audio.conf
+    rmdir --ignore-fail-on-non-empty /etc/ws 2>/dev/null || true
+fi
+
+#DEBHELPER#
