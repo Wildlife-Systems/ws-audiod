@@ -66,6 +66,45 @@ static void disable_raw_mode() {
 }
 
 // ── control socket helper ───────────────────────────────────────────
+
+// Check whether the control socket is accessible.  Returns true if
+// connect() succeeds (or the socket doesn't exist — nothing to fix).
+static bool can_access_socket(const std::string& socket_path) {
+    struct stat st;
+    if (stat(socket_path.c_str(), &st) != 0)
+        return true; // socket doesn't exist yet; nothing we can do
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return false;
+
+    struct sockaddr_un addr;
+    std::memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    std::strncpy(addr.sun_path, socket_path.c_str(),
+                 sizeof(addr.sun_path) - 1);
+
+    bool ok = connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
+                      sizeof(addr)) == 0;
+    close(fd);
+    return ok;
+}
+
+// Re-exec ourselves under sudo, preserving all original arguments.
+static void reexec_with_sudo(int argc, char* argv[]) {
+    // argv for execvp: "sudo" + original args + nullptr
+    std::vector<const char*> args;
+    args.push_back("sudo");
+    for (int i = 0; i < argc; ++i)
+        args.push_back(argv[i]);
+    args.push_back(nullptr);
+
+    std::cerr << "Control socket requires elevated privileges, re-running with sudo…\n";
+    execvp("sudo", const_cast<char* const*>(args.data()));
+    // execvp only returns on failure
+    std::cerr << "Failed to exec sudo: " << strerror(errno) << "\n";
+    _exit(1);
+}
+
 static std::string send_command(const std::string& socket_path,
                                 const std::string& cmd) {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -159,6 +198,12 @@ int main(int argc, char* argv[]) {
                 print_usage(argv[0]);
                 return (opt == 'h') ? 0 : 1;
         }
+    }
+
+    // ── check control socket permissions ────────────────────────────
+    if (!can_access_socket(socket_path) && geteuid() != 0) {
+        reexec_with_sudo(argc, argv);
+        // does not return
     }
 
     // ── open shared memory ──────────────────────────────────────────
