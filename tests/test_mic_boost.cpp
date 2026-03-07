@@ -156,8 +156,8 @@ void apply_dc_remove_16(int16_t* data, size_t frame_count,
 } // anonymous namespace
 
 TEST(DcRemoveTest, RemovesDcOffset) {
-    // Signal: constant DC of 1000 for 4000 samples (mono)
-    const size_t N = 4000;
+    // Signal: constant DC of 1000 — need enough samples for IIR to converge
+    const size_t N = 8000;
     std::vector<int16_t> data(N, 1000);
     std::vector<double> px(1, 0.0), py(1, 0.0);
 
@@ -229,8 +229,8 @@ TEST(DcRemoveTest, SilencePassesThrough) {
 }
 
 TEST(DcRemoveTest, StereoIndependentChannels) {
-    // Ch0: DC offset 2000, Ch1: zero
-    const size_t frames = 2000;
+    // Ch0: DC offset 2000, Ch1: zero — need enough frames for IIR convergence
+    const size_t frames = 8000;
     std::vector<int16_t> data(frames * 2);
     for (size_t f = 0; f < frames; ++f) {
         data[f * 2 + 0] = 2000; // ch0

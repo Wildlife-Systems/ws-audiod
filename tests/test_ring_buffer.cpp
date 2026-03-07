@@ -6,8 +6,8 @@
 using namespace audio_daemon;
 
 TEST(RingBufferTest, Construction) {
-    RingBuffer rb(4800, 1, 2);
-    EXPECT_EQ(rb.capacity_frames(), 4800u);
+    RingBuffer rb(4096, 1, 2);
+    EXPECT_EQ(rb.capacity_frames(), 4096u);
     EXPECT_EQ(rb.channels(), 1);
     EXPECT_EQ(rb.available_frames(), 0u);
 }
@@ -29,21 +29,21 @@ TEST(RingBufferTest, WriteAndRead) {
 }
 
 TEST(RingBufferTest, WrapAround) {
-    RingBuffer rb(10, 1, 2);
+    RingBuffer rb(8, 1, 2);
 
-    // Write 15 frames into a 10-frame buffer
+    // Write 15 frames into an 8-frame buffer
     std::vector<int16_t> data(15);
     std::iota(data.begin(), data.end(), 1); // 1..15
     rb.write(reinterpret_cast<const uint8_t*>(data.data()), 15);
 
-    EXPECT_EQ(rb.available_frames(), 10u);
+    EXPECT_EQ(rb.available_frames(), 8u);
 
-    // Should contain the last 10 values: 6..15
-    std::vector<int16_t> out(10);
-    size_t read = rb.read(reinterpret_cast<uint8_t*>(out.data()), 0, 10);
-    EXPECT_EQ(read, 10u);
-    EXPECT_EQ(out[0], 6);
-    EXPECT_EQ(out[9], 15);
+    // Should contain the last 8 values: 8..15
+    std::vector<int16_t> out(8);
+    size_t read = rb.read(reinterpret_cast<uint8_t*>(out.data()), 0, 8);
+    EXPECT_EQ(read, 8u);
+    EXPECT_EQ(out[0], 8);
+    EXPECT_EQ(out[7], 15);
 }
 
 TEST(RingBufferTest, StereoChannels) {
