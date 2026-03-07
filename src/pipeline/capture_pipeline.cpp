@@ -583,7 +583,6 @@ std::string CapturePipeline::get_levels_json() const {
 CapturePipeline::Stats CapturePipeline::get_stats() const {
     return {
         total_frames_.load(),
-        0.0,  // TODO compute actual FPS
         ring_buffer_ ? ring_buffer_->available_frames() : 0,
         peak_level_.load(),
         rms_level_.load()

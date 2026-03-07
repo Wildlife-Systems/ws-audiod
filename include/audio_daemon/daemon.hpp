@@ -24,7 +24,6 @@ public:
     void stop();
 
     static void signal_handler(int signum);
-    static Daemon* instance() { return instance_; }
 
 private:
     Response handle_clip_command(const Command& cmd);

@@ -10,7 +10,6 @@
 #include <atomic>
 #include <string>
 #include <vector>
-#include <cmath>
 
 namespace audio_daemon {
 
@@ -50,7 +49,6 @@ public:
 
     struct Stats {
         uint64_t frames_captured;
-        double capture_fps;
         size_t ring_buffer_frames;
         int16_t peak_level;
         double rms_level;

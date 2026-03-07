@@ -45,8 +45,6 @@ public:
 
     uint16_t channels() const { return channels_; }
 
-    uint16_t bytes_per_sample() const { return bytes_per_sample_; }
-
     /** Bytes per frame (channels * bytes_per_sample). */
     size_t bytes_per_frame() const { return static_cast<size_t>(channels_) * bytes_per_sample_; }
 

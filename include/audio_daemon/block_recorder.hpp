@@ -2,9 +2,7 @@
 
 #include "audio_daemon/common.hpp"
 #include <string>
-#include <thread>
 #include <mutex>
-#include <condition_variable>
 #include <atomic>
 #include <vector>
 #include <sndfile.h>
@@ -52,9 +50,6 @@ public:
      * Data is buffered and flushed to disk in larger batches.
      */
     void push(const uint8_t* data, size_t frame_count);
-
-    /** Whether the recorder is actively writing. */
-    bool is_recording() const { return recording_.load(); }
 
     struct Stats {
         uint64_t blocks_written;

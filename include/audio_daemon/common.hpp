@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <string>
 #include <functional>
-#include <vector>
 #include <chrono>
 #include <audio_daemon/version.hpp>
 
@@ -20,7 +19,6 @@ constexpr const char* DEFAULT_SOCKET_PATH = "/run/ws-audiod/control.sock";
 constexpr const char* DEFAULT_CLIPS_DIR = "/var/ws/audiod/clips";
 constexpr const char* DEFAULT_BLOCKS_DIR = "/var/ws/audiod/blocks";
 constexpr const char* DEFAULT_SHM_NAME = "/ws_audiod_samples";
-constexpr const char* DEFAULT_FRAME_NOTIFY_PATH = "/run/ws-audiod/frames.sock";
 
 // Metadata for a chunk of captured audio
 struct AudioChunkMeta {

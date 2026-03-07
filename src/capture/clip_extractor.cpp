@@ -2,7 +2,6 @@
 #include "audio_daemon/logger.hpp"
 #include <sndfile.h>
 #include <filesystem>
-#include <cmath>
 
 namespace audio_daemon {
 
@@ -70,10 +69,6 @@ std::string ClipExtractor::request_clip_sync(int start_offset, int end_offset,
     return path;
 }
 
-ClipExtractor::Stats ClipExtractor::get_stats() const {
-    return {clips_extracted_.load(), clips_failed_.load()};
-}
-
 void ClipExtractor::worker_func() {
     LOG_DEBUG("Clip extractor thread started");
 
@@ -91,10 +86,8 @@ void ClipExtractor::worker_func() {
 
         std::string path = extract_clip(req);
         if (path.empty()) {
-            clips_failed_++;
             LOG_ERROR("Clip extraction failed for request ", req.request_id);
         } else {
-            clips_extracted_++;
             LOG_INFO("Clip saved: ", path);
         }
 
@@ -141,11 +134,6 @@ std::string ClipExtractor::extract_clip(const ClipRequest& req) {
 
     std::string base = config_.output_dir + "/clip_" + timestamp_to_filename();
     return write_sndfile(samples, base, req.format);
-}
-
-std::string ClipExtractor::write_wav(const std::vector<uint8_t>& samples,
-                                     const std::string& path) {
-    return write_sndfile(samples, path, "wav");
 }
 
 std::string ClipExtractor::write_sndfile(const std::vector<uint8_t>& samples,

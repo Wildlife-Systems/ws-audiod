@@ -4,7 +4,6 @@
 #include <functional>
 #include <thread>
 #include <atomic>
-#include <vector>
 
 namespace audio_daemon {
 

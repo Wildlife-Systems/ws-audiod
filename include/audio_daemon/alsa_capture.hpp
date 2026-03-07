@@ -4,7 +4,6 @@
 #include <alsa/asoundlib.h>
 #include <thread>
 #include <atomic>
-#include <functional>
 #include <vector>
 
 namespace audio_daemon {

@@ -2,8 +2,6 @@
 #include "audio_daemon/daemon.hpp"
 #include "audio_daemon/logger.hpp"
 #include <fstream>
-#include <sstream>
-#include <algorithm>
 #include <getopt.h>
 
 namespace audio_daemon {

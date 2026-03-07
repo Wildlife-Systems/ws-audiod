@@ -57,17 +57,9 @@ public:
     std::string request_clip_sync(int start_offset, int end_offset,
                                   const std::string& format = "");
 
-    struct Stats {
-        uint64_t clips_extracted;
-        uint64_t clips_failed;
-    };
-    Stats get_stats() const;
-
 private:
     void worker_func();
     std::string extract_clip(const ClipRequest& req);
-    std::string write_wav(const std::vector<uint8_t>& samples,
-                          const std::string& path);
     std::string write_sndfile(const std::vector<uint8_t>& samples,
                               const std::string& path,
                               const std::string& format);
@@ -86,8 +78,6 @@ private:
     std::condition_variable queue_cv_;
 
     std::atomic<uint64_t> next_id_{1};
-    std::atomic<uint64_t> clips_extracted_{0};
-    std::atomic<uint64_t> clips_failed_{0};
 
     std::mutex results_mutex_;
     std::condition_variable results_cv_;

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "audio_daemon/common.hpp"
 #include <string>
 #include <atomic>
 #include <cstdint>

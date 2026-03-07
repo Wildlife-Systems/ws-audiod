@@ -19,10 +19,9 @@ public:
     }
 
     void set_level(LogLevel level) { level_ = level; }
-    LogLevel level() const { return level_; }
 
     template<typename... Args>
-    void log(LogLevel level, const char* file, int line, Args&&... args) {
+    void log(LogLevel level, Args&&... args) {
         if (level < level_) return;
 
         std::ostringstream oss;
@@ -64,10 +63,10 @@ private:
     std::mutex mutex_;
 };
 
-#define LOG_DEBUG(...) audio_daemon::Logger::instance().log(audio_daemon::LogLevel::DEBUG, __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_INFO(...)  audio_daemon::Logger::instance().log(audio_daemon::LogLevel::INFO,  __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_WARN(...)  audio_daemon::Logger::instance().log(audio_daemon::LogLevel::WARN,  __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_ERROR(...) audio_daemon::Logger::instance().log(audio_daemon::LogLevel::ERROR, __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_FATAL(...) audio_daemon::Logger::instance().log(audio_daemon::LogLevel::FATAL, __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_DEBUG(...) audio_daemon::Logger::instance().log(audio_daemon::LogLevel::DEBUG, __VA_ARGS__)
+#define LOG_INFO(...)  audio_daemon::Logger::instance().log(audio_daemon::LogLevel::INFO,  __VA_ARGS__)
+#define LOG_WARN(...)  audio_daemon::Logger::instance().log(audio_daemon::LogLevel::WARN,  __VA_ARGS__)
+#define LOG_ERROR(...) audio_daemon::Logger::instance().log(audio_daemon::LogLevel::ERROR, __VA_ARGS__)
+#define LOG_FATAL(...) audio_daemon::Logger::instance().log(audio_daemon::LogLevel::FATAL, __VA_ARGS__)
 
 } // namespace audio_daemon
