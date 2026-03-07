@@ -51,7 +51,7 @@ public:
         uint64_t frames_captured;
         size_t ring_buffer_frames;
         int16_t peak_level;
-        double rms_level;
+        float rms_level;
     };
     Stats get_stats() const;
 
@@ -69,13 +69,13 @@ private:
     std::unique_ptr<SamplePublisher> sample_publisher_;
 
     // Mic boost / gain
-    std::atomic<double> gain_linear_{1.0};
-    std::atomic<double> gain_db_{0.0};
+    std::atomic<float> gain_linear_{1.0f};
+    std::atomic<float> gain_db_{0.0f};
     std::vector<uint8_t> gain_buffer_;  // scratch buffer for gain-adjusted data
 
     void apply_gain(const uint8_t* src, uint8_t* dst,
                     size_t sample_count, uint16_t bits_per_sample,
-                    double gain) const;
+                    float gain) const;
 
     // Stereo-to-mono downmix
     bool downmix_mono_ = false;
@@ -95,7 +95,7 @@ private:
 
     // Level metering (updated from capture thread)
     std::atomic<int16_t> peak_level_{0};
-    std::atomic<double> rms_level_{0.0};
+    std::atomic<float> rms_level_{0.0f};
     std::atomic<uint64_t> total_frames_{0};
 };
 

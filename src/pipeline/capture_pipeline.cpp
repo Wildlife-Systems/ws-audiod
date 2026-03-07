@@ -13,8 +13,8 @@ namespace audio_daemon {
 
 CapturePipeline::CapturePipeline(const DaemonConfig& config)
     : config_(config), downmix_mono_(config.audio.downmix_mono) {
-    gain_db_.store(config.audio.gain_db, std::memory_order_relaxed);
-    gain_linear_.store(std::pow(10.0, config.audio.gain_db / 20.0),
+    gain_db_.store(static_cast<float>(config.audio.gain_db), std::memory_order_relaxed);
+    gain_linear_.store(static_cast<float>(std::pow(10.0, config.audio.gain_db / 20.0)),
                        std::memory_order_relaxed);
     if (config.audio.gain_db != 0.0) {
         LOG_INFO("Mic boost: ", config.audio.gain_db, " dB (linear ",
@@ -148,8 +148,8 @@ bool CapturePipeline::set_parameter(const std::string& key,
                                     const std::string& value) {
     if (key == "gain_db" || key == "gain") {
         double db = std::stod(value);
-        gain_db_.store(db, std::memory_order_relaxed);
-        gain_linear_.store(std::pow(10.0, db / 20.0),
+        gain_db_.store(static_cast<float>(db), std::memory_order_relaxed);
+        gain_linear_.store(static_cast<float>(std::pow(10.0, db / 20.0)),
                            std::memory_order_relaxed);
         LOG_INFO("Mic boost set to ", db, " dB");
         return true;
@@ -189,9 +189,9 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
     size_t data_size = cur_samples * bytes_per_sample;
 
     // Apply mic boost if gain != 0 dB
-    double gain = gain_linear_.load(std::memory_order_relaxed);
+    float gain = gain_linear_.load(std::memory_order_relaxed);
     const uint8_t* out_data = cur_data;
-    if (gain != 1.0) {
+    if (gain != 1.0f) {
         if (gain_buffer_.size() < data_size) {
             gain_buffer_.resize(data_size);
         }
@@ -337,14 +337,14 @@ void CapturePipeline::on_audio_chunk(const AudioChunkMeta& meta,
         }
     }
     peak_level_.store(static_cast<int16_t>(std::min(peak, (int32_t)32767)), std::memory_order_relaxed);
-    rms_level_.store(std::sqrt(sum_sq / static_cast<double>(cur_samples)),
+    rms_level_.store(static_cast<float>(std::sqrt(sum_sq / static_cast<double>(cur_samples))),
                      std::memory_order_relaxed);
     total_frames_.fetch_add(frame_count, std::memory_order_relaxed);
 }
 
 void CapturePipeline::apply_gain(const uint8_t* src, uint8_t* dst,
                                  size_t sample_count, uint16_t bits_per_sample,
-                                 double gain) const {
+                                 float gain) const {
     switch (bits_per_sample) {
         case 16: {
             const int16_t* sp = reinterpret_cast<const int16_t*>(src);
@@ -580,11 +580,11 @@ std::string CapturePipeline::get_status_json() const {
 std::string CapturePipeline::get_levels_json() const {
     std::ostringstream oss;
     int16_t peak = peak_level_.load(std::memory_order_relaxed);
-    double rms = rms_level_.load(std::memory_order_relaxed);
+    float rms = rms_level_.load(std::memory_order_relaxed);
     double peak_db = (peak > 0)
         ? 20.0 * std::log10(static_cast<double>(peak) / 32768.0) : -96.0;
     double rms_db = (rms > 0)
-        ? 20.0 * std::log10(rms / 32768.0) : -96.0;
+        ? 20.0 * std::log10(static_cast<double>(rms) / 32768.0) : -96.0;
     oss << R"({"peak":)" << peak
         << R"(,"peak_db":)" << peak_db
         << R"(,"rms":)" << rms
