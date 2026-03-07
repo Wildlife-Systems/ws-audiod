@@ -1,3 +1,12 @@
+ws-audiod (1.0.2) stable; urgency=medium
+
+  * Remove obsolete /etc/ws/audio.conf on upgrade.
+  * audiod-mon: check control socket permissions and re-exec with sudo
+    if needed.
+  * Remove dead code (flush_buffer stub, unused FMT_S* constants).
+
+ -- Ed Baker <ed@ebaker.me.uk>  Sat, 07 Mar 2026 00:00:00 +0000
+
 ws-audiod (1.0.1) stable; urgency=medium
 
   * Performance enhancements.
