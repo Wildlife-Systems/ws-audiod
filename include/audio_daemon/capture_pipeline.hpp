@@ -86,9 +86,9 @@ private:
 
     // DC offset removal (single-pole high-pass IIR per channel)
     std::atomic<bool> dc_remove_{false};
-    std::vector<double> dc_prev_x_;  // previous input per channel
-    std::vector<double> dc_prev_y_;  // previous output per channel
-    static constexpr double DC_ALPHA = 0.999;
+    std::vector<float> dc_prev_x_;  // previous input per channel
+    std::vector<float> dc_prev_y_;  // previous output per channel
+    static constexpr float DC_ALPHA = 0.999f;
 
     void apply_dc_remove(uint8_t* data, size_t sample_count,
                          uint16_t channels, uint16_t bits_per_sample);

@@ -29,6 +29,25 @@ public:
         oss << " [" << level_str(level) << "] ";
         (oss << ... << std::forward<Args>(args));
 
+        // Use try_lock to avoid blocking the caller (critical for the
+        // ALSA capture thread where a mutex stall can cause an xrun).
+        // If the lock is contended, drop the message rather than block.
+        std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+        if (lock.owns_lock()) {
+            std::cerr << oss.str() << std::endl;
+        }
+    }
+
+    /** Blocking log — always emits, acceptable for startup/shutdown paths. */
+    template<typename... Args>
+    void log_blocking(LogLevel level, Args&&... args) {
+        if (level < level_) return;
+
+        std::ostringstream oss;
+        format_timestamp(oss);
+        oss << " [" << level_str(level) << "] ";
+        (oss << ... << std::forward<Args>(args));
+
         std::lock_guard<std::mutex> lock(mutex_);
         std::cerr << oss.str() << std::endl;
     }

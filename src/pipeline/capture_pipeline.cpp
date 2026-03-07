@@ -24,8 +24,8 @@ CapturePipeline::CapturePipeline(const DaemonConfig& config)
     // DC removal state uses output channel count (1 if downmixing)
     uint16_t out_ch = downmix_mono_ ? 1 : config.audio.channels;
     dc_remove_.store(config.audio.dc_remove, std::memory_order_relaxed);
-    dc_prev_x_.resize(out_ch, 0.0);
-    dc_prev_y_.resize(out_ch, 0.0);
+    dc_prev_x_.resize(out_ch, 0.0f);
+    dc_prev_y_.resize(out_ch, 0.0f);
     if (config.audio.dc_remove) {
         LOG_INFO("DC offset removal enabled");
     }
@@ -158,8 +158,8 @@ bool CapturePipeline::set_parameter(const std::string& key,
         bool enabled = (value == "true" || value == "1");
         dc_remove_.store(enabled, std::memory_order_relaxed);
         if (!enabled) {
-            std::fill(dc_prev_x_.begin(), dc_prev_x_.end(), 0.0);
-            std::fill(dc_prev_y_.begin(), dc_prev_y_.end(), 0.0);
+            std::fill(dc_prev_x_.begin(), dc_prev_x_.end(), 0.0f);
+            std::fill(dc_prev_y_.begin(), dc_prev_y_.end(), 0.0f);
         }
         LOG_INFO("DC offset removal ", enabled ? "enabled" : "disabled");
         return true;
@@ -444,9 +444,21 @@ void CapturePipeline::apply_downmix(const uint8_t* src, uint8_t* dst,
         case 16: {
             const int16_t* sp = reinterpret_cast<const int16_t*>(src);
             int16_t* dp = reinterpret_cast<int16_t*>(dst);
-            for (size_t f = 0; f < frame_count; ++f) {
-                dp[f] = sp[f * 2];  // L = index 0, R = index 1
+#ifdef __ARM_NEON
+            size_t f = 0;
+            size_t neon_end = frame_count & ~7u;
+            for (; f < neon_end; f += 8) {
+                int16x8x2_t stereo = vld2q_s16(sp + f * 2);
+                vst1q_s16(dp + f, stereo.val[0]);  // val[0] = L channels
             }
+            for (; f < frame_count; ++f) {
+                dp[f] = sp[f * 2];
+            }
+#else
+            for (size_t f = 0; f < frame_count; ++f) {
+                dp[f] = sp[f * 2];
+            }
+#endif
             break;
         }
         case 24:
@@ -493,8 +505,8 @@ void CapturePipeline::apply_dc_remove(uint8_t* data, size_t sample_count,
             int16_t* samples = reinterpret_cast<int16_t*>(data);
             for (size_t f = 0; f < frame_count; ++f) {
                 for (uint16_t ch = 0; ch < channels; ++ch) {
-                    double x = samples[f * channels + ch];
-                    double y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
+                    float x = samples[f * channels + ch];
+                    float y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
                     dc_prev_x_[ch] = x;
                     dc_prev_y_[ch] = y;
                     samples[f * channels + ch] = static_cast<int16_t>(
@@ -510,8 +522,8 @@ void CapturePipeline::apply_dc_remove(uint8_t* data, size_t sample_count,
                     uint8_t* p = data + idx;
                     int32_t s = p[0] | (p[1] << 8) | (p[2] << 16);
                     if (s & 0x800000) s |= 0xFF000000;
-                    double x = s;
-                    double y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
+                    float x = static_cast<float>(s);
+                    float y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
                     dc_prev_x_[ch] = x;
                     dc_prev_y_[ch] = y;
                     int32_t out = std::clamp(static_cast<int32_t>(y),
@@ -526,8 +538,8 @@ void CapturePipeline::apply_dc_remove(uint8_t* data, size_t sample_count,
             int32_t* samples = reinterpret_cast<int32_t*>(data);
             for (size_t f = 0; f < frame_count; ++f) {
                 for (uint16_t ch = 0; ch < channels; ++ch) {
-                    double x = samples[f * channels + ch];
-                    double y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
+                    float x = static_cast<float>(samples[f * channels + ch]);
+                    float y = x - dc_prev_x_[ch] + DC_ALPHA * dc_prev_y_[ch];
                     dc_prev_x_[ch] = x;
                     dc_prev_y_[ch] = y;
                     int64_t out64 = static_cast<int64_t>(y);

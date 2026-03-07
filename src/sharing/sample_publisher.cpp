@@ -71,17 +71,14 @@ void SamplePublisher::publish(const uint8_t* data, size_t frame_count,
     size_t max_bytes = shm_size_ - HEADER_SIZE;
     if (bytes > max_bytes) bytes = max_bytes;
 
-    // Update header fields
+    // Update timestamp and sample data first, then publish the counter.
+    // Readers spin on the counter, so it must be written LAST with a
+    // release fence so all preceding stores (data) are visible.
     uint64_t counter = write_counter_.fetch_add(1, std::memory_order_relaxed) + 1;
-    std::memcpy(shm_ptr_ + 16, &counter,      8);
     std::memcpy(shm_ptr_ + 24, &timestamp_us, 8);
-
-    // Copy sample data
     std::memcpy(shm_ptr_ + HEADER_SIZE, data, bytes);
-
-    // Release fence — ensures readers see data before the updated counter.
-    // Much lighter than __sync_synchronize() on ARM (DMB ISH vs DSB SY).
     std::atomic_thread_fence(std::memory_order_release);
+    std::memcpy(shm_ptr_ + 16, &counter, 8);
 }
 
 void SamplePublisher::cleanup() {
