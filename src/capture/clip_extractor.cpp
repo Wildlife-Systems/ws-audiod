@@ -171,17 +171,31 @@ std::string ClipExtractor::write_sndfile(const std::vector<uint8_t>& samples,
     }
 
     size_t bytes_per_sample = bits_per_sample_ / 8;
-    sf_count_t total_samples = static_cast<sf_count_t>(samples.size() / bytes_per_sample);
+    sf_count_t total_frames = static_cast<sf_count_t>(samples.size() / (bytes_per_sample * channels_));
     sf_count_t written;
     if (bits_per_sample_ == 32) {
-        written = sf_write_int(sf, reinterpret_cast<const int*>(samples.data()), total_samples);
+        written = sf_write_int(sf, reinterpret_cast<const int*>(samples.data()),
+                               total_frames * channels_);
     } else if (bits_per_sample_ == 24) {
-        written = sf_write_int(sf, reinterpret_cast<const int*>(samples.data()), total_samples);
+        // 24-bit samples are packed as 3 bytes each;
+        // sf_write_int expects 4-byte ints — unpack first
+        size_t total_samples = total_frames * channels_;
+        std::vector<int> tmp(total_samples);
+        for (size_t s = 0; s < total_samples; ++s) {
+            const uint8_t* p = samples.data() + s * 3;
+            int32_t v = p[0] | (p[1] << 8) | (p[2] << 16);
+            if (v & 0x800000) v |= 0xFF000000;
+            tmp[s] = v << 8; // libsndfile expects 32-bit left-justified
+        }
+        written = sf_write_int(sf, tmp.data(),
+                               static_cast<sf_count_t>(total_samples));
     } else {
-        written = sf_write_short(sf, reinterpret_cast<const short*>(samples.data()), total_samples);
+        written = sf_write_short(sf, reinterpret_cast<const short*>(samples.data()),
+                                 total_frames * channels_);
     }
     sf_close(sf);
 
+    sf_count_t total_samples = total_frames * channels_;
     if (written != total_samples) {
         LOG_WARN("Short write: ", written, " of ", total_samples, " samples");
     }

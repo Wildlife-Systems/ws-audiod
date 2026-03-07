@@ -350,22 +350,21 @@ void CapturePipeline::apply_gain(const uint8_t* src, uint8_t* dst,
             const int16_t* sp = reinterpret_cast<const int16_t*>(src);
             int16_t* dp = reinterpret_cast<int16_t*>(dst);
 #ifdef __ARM_NEON
-            // NEON: fixed-point gain — scale by 2^14, multiply, shift back
-            // Supports gains roughly in [-4.0, +4.0] without overflow
-            int16_t gain_fp = static_cast<int16_t>(std::clamp(
-                gain * 16384.0, -32768.0, 32767.0));
-            int16x8_t vgain = vdupq_n_s16(gain_fp);
+            // NEON: float gain — widen int16→float, multiply, convert back
+            // No range limit on gain (handles >6dB correctly)
+            float32x4_t vgain = vdupq_n_f32(gain);
             size_t i = 0;
             size_t neon_end = sample_count & ~7u;
             for (; i < neon_end; i += 8) {
                 int16x8_t v = vld1q_s16(sp + i);
-                // Multiply and take high half (>> 14 via qdmulh which does >> 15,
-                // but we use manual widening for exact >> 14)
-                int32x4_t lo = vmull_s16(vget_low_s16(v), vget_low_s16(vgain));
-                int32x4_t hi = vmull_s16(vget_high_s16(v), vget_high_s16(vgain));
-                // Shift right by 14 and saturating narrow back to int16
-                int16x4_t r_lo = vqshrn_n_s32(lo, 14);
-                int16x4_t r_hi = vqshrn_n_s32(hi, 14);
+                // Widen to int32, convert to float, multiply, convert back, narrow
+                int32x4_t lo_i = vmovl_s16(vget_low_s16(v));
+                int32x4_t hi_i = vmovl_s16(vget_high_s16(v));
+                float32x4_t lo_f = vmulq_f32(vcvtq_f32_s32(lo_i), vgain);
+                float32x4_t hi_f = vmulq_f32(vcvtq_f32_s32(hi_i), vgain);
+                // Convert back to int32 and saturating narrow to int16
+                int16x4_t r_lo = vqmovn_s32(vcvtq_s32_f32(lo_f));
+                int16x4_t r_hi = vqmovn_s32(vcvtq_s32_f32(hi_f));
                 vst1q_s16(dp + i, vcombine_s16(r_lo, r_hi));
             }
             // Scalar tail
@@ -570,7 +569,7 @@ std::string CapturePipeline::get_status_json() const {
         auto br = block_recorder_->get_stats();
         oss << R"(,"block_recorder":{"blocks_written":)" << br.blocks_written
             << R"(,"total_frames":)" << br.total_frames_written
-            << R"(,"current_file":")" << br.current_file << R"("})";
+            << R"(,"current_file":")" << br.current_file << R"("}")";
     }
 
     oss << "}";

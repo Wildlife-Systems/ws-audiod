@@ -68,7 +68,7 @@ DaemonConfig load_config(const std::string& path) {
             else if (key == "buffer_periods")
                 config.audio.buffer_periods = std::stoul(value);
             else if (key == "gain_db")
-                config.audio.gain_db = std::stod(value);
+                config.audio.gain_db = std::stof(value);
             else if (key == "dc_remove")
                 config.audio.dc_remove = (value == "true" || value == "1");
             else if (key == "cpu_affinity")
@@ -125,7 +125,7 @@ DaemonConfig parse_args(int argc, char* argv[]) {
             case 'r': config.audio.sample_rate = std::stoul(optarg); break;
             case 'C': config.audio.channels = static_cast<uint16_t>(std::stoul(optarg)); break;
             case 'b': config.audio.bits_per_sample = static_cast<uint16_t>(std::stoul(optarg)); break;
-            case 'g': config.audio.gain_db = std::stod(optarg); break;
+            case 'g': config.audio.gain_db = std::stof(optarg); break;
             case 'p': config.audio.period_size = std::stoul(optarg); break;
             case 'B':
                 config.block_recorder.enabled = true;
@@ -174,7 +174,7 @@ DaemonConfig parse_args(int argc, char* argv[]) {
                 case 'r': config.audio.sample_rate = std::stoul(optarg); break;
                 case 'C': config.audio.channels = static_cast<uint16_t>(std::stoul(optarg)); break;
                 case 'b': config.audio.bits_per_sample = static_cast<uint16_t>(std::stoul(optarg)); break;
-                case 'g': config.audio.gain_db = std::stod(optarg); break;
+                case 'g': config.audio.gain_db = std::stof(optarg); break;
                 case 'p': config.audio.period_size = std::stoul(optarg); break;
                 case 'B':
                     config.block_recorder.enabled = true;

@@ -160,7 +160,21 @@ void BlockRecorder::writer_thread_func() {
 
                 // Write to file
                 sf_count_t written;
-                if (bits_per_sample_ >= 24) {
+                size_t batch_samples = batch * channels_;
+                if (bits_per_sample_ == 24) {
+                    // 24-bit samples are packed as 3 bytes each;
+                    // sf_writef_int expects 4-byte ints — unpack first
+                    std::vector<int> tmp(batch_samples);
+                    for (size_t s = 0; s < batch_samples; ++s) {
+                        const uint8_t* p = src + s * 3;
+                        int32_t v = p[0] | (p[1] << 8) | (p[2] << 16);
+                        if (v & 0x800000) v |= 0xFF000000;
+                        tmp[s] = v << 8; // libsndfile expects 32-bit left-justified
+                    }
+                    written = sf_writef_int(
+                        sndfile_, tmp.data(),
+                        static_cast<sf_count_t>(batch));
+                } else if (bits_per_sample_ == 32) {
                     written = sf_writef_int(
                         sndfile_,
                         reinterpret_cast<const int*>(src),
@@ -270,11 +284,6 @@ void BlockRecorder::close_current_file() {
                  " (", frames_in_block_, " frames)");
         current_path_.clear();
     }
-}
-
-void BlockRecorder::flush_buffer() {
-    // No longer used — writes happen inline in writer_thread_func.
-    // Kept for interface compatibility.
 }
 
 std::string BlockRecorder::make_filename(uint64_t timestamp_us) const {

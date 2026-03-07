@@ -70,9 +70,6 @@ private:
     /** Close the current file (flushes buffer first). */
     void close_current_file();
 
-    /** Flush the write buffer to the current sndfile. */
-    void flush_buffer();
-
     /** Build a filename for a block starting at the given time. */
     std::string make_filename(uint64_t timestamp_us) const;
 

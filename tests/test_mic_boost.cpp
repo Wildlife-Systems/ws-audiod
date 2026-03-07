@@ -134,17 +134,17 @@ namespace {
 
 // Mirrors the DC removal IIR from capture_pipeline.cpp
 // y[n] = x[n] - x[n-1] + alpha * y[n-1]
-constexpr double DC_ALPHA = 0.999;
+constexpr float DC_ALPHA = 0.999f;
 
 void apply_dc_remove_16(int16_t* data, size_t frame_count,
                          uint16_t channels,
-                         std::vector<double>& prev_x,
-                         std::vector<double>& prev_y) {
+                         std::vector<float>& prev_x,
+                         std::vector<float>& prev_y) {
     for (size_t f = 0; f < frame_count; ++f) {
         for (uint16_t ch = 0; ch < channels; ++ch) {
             size_t idx = f * channels + ch;
-            double x = data[idx];
-            double y = x - prev_x[ch] + DC_ALPHA * prev_y[ch];
+            float x = data[idx];
+            float y = x - prev_x[ch] + DC_ALPHA * prev_y[ch];
             prev_x[ch] = x;
             prev_y[ch] = y;
             data[idx] = static_cast<int16_t>(
@@ -159,7 +159,7 @@ TEST(DcRemoveTest, RemovesDcOffset) {
     // Signal: constant DC of 1000 — need enough samples for IIR to converge
     const size_t N = 8000;
     std::vector<int16_t> data(N, 1000);
-    std::vector<double> px(1, 0.0), py(1, 0.0);
+    std::vector<float> px(1, 0.0f), py(1, 0.0f);
 
     apply_dc_remove_16(data.data(), N, 1, px, py);
 
@@ -180,7 +180,7 @@ TEST(DcRemoveTest, PreservesAcSignal) {
     }
 
     std::vector<int16_t> filtered = original;
-    std::vector<double> px(1, 0.0), py(1, 0.0);
+    std::vector<float> px(1, 0.0f), py(1, 0.0f);
     apply_dc_remove_16(filtered.data(), N, 1, px, py);
 
     // After settling (skip first 500 samples), amplitude should be preserved
@@ -205,7 +205,7 @@ TEST(DcRemoveTest, RemovesOffsetFromAcSignal) {
             5000 + 10000.0 * std::sin(2.0 * M_PI * 500.0 * i / 48000.0));
     }
 
-    std::vector<double> px(1, 0.0), py(1, 0.0);
+    std::vector<float> px(1, 0.0f), py(1, 0.0f);
     apply_dc_remove_16(data.data(), N, 1, px, py);
 
     // Mean of last half should be near zero (DC removed)
@@ -219,7 +219,7 @@ TEST(DcRemoveTest, RemovesOffsetFromAcSignal) {
 
 TEST(DcRemoveTest, SilencePassesThrough) {
     std::vector<int16_t> data(1000, 0);
-    std::vector<double> px(1, 0.0), py(1, 0.0);
+    std::vector<float> px(1, 0.0f), py(1, 0.0f);
 
     apply_dc_remove_16(data.data(), 1000, 1, px, py);
 
@@ -237,7 +237,7 @@ TEST(DcRemoveTest, StereoIndependentChannels) {
         data[f * 2 + 1] = 0;    // ch1
     }
 
-    std::vector<double> px(2, 0.0), py(2, 0.0);
+    std::vector<float> px(2, 0.0f), py(2, 0.0f);
     apply_dc_remove_16(data.data(), frames, 2, px, py);
 
     // Ch0 should converge toward 0, ch1 should stay 0

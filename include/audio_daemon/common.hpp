@@ -9,11 +9,6 @@
 
 namespace audio_daemon {
 
-// Audio format identifiers
-constexpr uint32_t FMT_S16_LE = 1;
-constexpr uint32_t FMT_S24_LE = 2;
-constexpr uint32_t FMT_S32_LE = 3;
-
 // Default paths
 constexpr const char* DEFAULT_SOCKET_PATH = "/run/ws-audiod/control.sock";
 constexpr const char* DEFAULT_CLIPS_DIR = "/var/ws/audiod/clips";
@@ -38,7 +33,7 @@ struct AudioConfig {
     uint16_t bits_per_sample = 16;     // 16, 24, or 32
     uint32_t period_size = 1024;       // Frames per ALSA period
     uint32_t buffer_periods = 4;       // Number of periods in ALSA buffer
-    double gain_db = 0.0;              // Input gain in dB
+    float gain_db = 0.0f;              // Input gain in dB
     bool dc_remove = false;            // DC offset removal filter
     int cpu_affinity = -1;             // CPU core to pin capture thread (-1 = no pinning)
     bool downmix_mono = false;         // Mix stereo input down to mono

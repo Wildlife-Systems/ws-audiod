@@ -33,12 +33,6 @@ TEST(CommonTest, DefaultBlockRecorderConfig) {
     EXPECT_EQ(cfg.max_blocks, 0u);
 }
 
-TEST(CommonTest, FormatConstants) {
-    EXPECT_EQ(FMT_S16_LE, 1u);
-    EXPECT_EQ(FMT_S24_LE, 2u);
-    EXPECT_EQ(FMT_S32_LE, 3u);
-}
-
 TEST(CommonTest, VersionDefined) {
     EXPECT_NE(VERSION, nullptr);
     EXPECT_GT(std::strlen(VERSION), 0u);
