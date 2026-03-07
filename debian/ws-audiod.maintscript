@@ -1,0 +1,1 @@
+rm_conffile /etc/ws/audio.conf 1.0.1~ ws-audiod
